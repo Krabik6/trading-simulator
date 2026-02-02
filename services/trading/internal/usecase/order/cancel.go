@@ -1,0 +1,51 @@
+package order
+
+import (
+	"context"
+
+	"trading/internal/domain"
+	"trading/internal/logger"
+	"trading/internal/metrics"
+)
+
+func (uc *UseCase) CancelOrder(ctx context.Context, userID domain.UserID, orderID domain.OrderID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+
+	// Verify ownership
+	if order.UserID != userID {
+		return domain.ErrOrderNotFound
+	}
+
+	// Check if order can be cancelled
+	if !order.CanBeCancelled() {
+		return domain.ErrOrderNotPending
+	}
+
+	// Update order status
+	order.Status = domain.OrderStatusCancelled
+	if err := uc.orderRepo.Update(ctx, order); err != nil {
+		return err
+	}
+
+	metrics.RecordOrderCancelled(order.Symbol)
+	logger.Info("order cancelled", "order_id", orderID)
+
+	return nil
+}
+
+func (uc *UseCase) GetOrders(ctx context.Context, userID domain.UserID, limit, offset int) ([]domain.Order, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return uc.orderRepo.GetByUserID(ctx, userID, limit, offset)
+}
+
+func (uc *UseCase) GetPendingOrders(ctx context.Context, userID domain.UserID) ([]domain.Order, error) {
+	return uc.orderRepo.GetPendingByUserID(ctx, userID)
+}
