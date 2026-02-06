@@ -614,20 +614,28 @@ components:
       properties:
         balance:
           type: string
-          description: Свободный баланс
+          description: Свободный баланс (USDT)
           example: "9500.00"
-        margin:
-          type: string
-          description: Заблокированная маржа
-          example: "500.00"
         equity:
           type: string
-          description: Общий капитал (balance + margin + unrealized PnL)
+          description: Общий капитал (balance + unrealized_pnl)
           example: "10050.00"
+        used_margin:
+          type: string
+          description: Заблокированная маржа (сумма initial_margin всех открытых позиций)
+          example: "500.00"
+        available_margin:
+          type: string
+          description: Доступная маржа (equity - used_margin)
+          example: "9550.00"
         unrealized_pnl:
           type: string
           description: Нереализованный PnL
           example: "50.00"
+        margin_ratio:
+          type: string
+          description: Коэффициент маржи (used_margin / equity)
+          example: "0.0496"
 
     Price:
       type: object
@@ -742,7 +750,7 @@ components:
           enum: [MARKET, LIMIT]
         status:
           type: string
-          enum: [PENDING, FILLED, CANCELLED]
+          enum: [PENDING, FILLED, CANCELLED, REJECTED]
         quantity:
           type: string
         price:
@@ -837,7 +845,7 @@ components:
           enum: [LONG, SHORT]
         type:
           type: string
-          enum: [OPEN, CLOSE, LIQUIDATE]
+          enum: [OPEN, ADD, CLOSE, LIQUIDATE]
         quantity:
           type: string
         price:

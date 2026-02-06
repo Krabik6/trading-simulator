@@ -40,6 +40,8 @@ kafka-consume-live:
 # ============ Info ============
 
 urls:
+	@echo "Frontend:     http://localhost:3001"
+	@echo "Trading API:  http://localhost:8081"
 	@echo "Market Data:  http://localhost:8080"
 	@echo "Prometheus:   http://localhost:9090"
 	@echo "Grafana:      http://localhost:3000 (admin/admin)"

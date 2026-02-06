@@ -87,24 +87,31 @@ Env vars:
 
 ## REST API
 
-### Public Endpoints
-- `POST /auth/register` - register new user
-- `POST /auth/login` - login, returns JWT
-
-### Protected Endpoints (require Bearer token)
-- `GET /account` - account balance and equity
-- `POST /orders` - place order
-- `GET /orders` - list orders
-- `DELETE /orders/:id` - cancel pending order
-- `GET /positions` - list open positions
-- `POST /positions/:id/close` - close position
-- `PATCH /positions/:id` - update TP/SL
-- `GET /trades` - trade history
-
 ### Health Endpoints
 - `GET /health` - liveness
 - `GET /ready` - readiness (checks DB, Kafka)
 - `GET /metrics` - Prometheus metrics
+
+### Public Endpoints
+- `POST /auth/register` - register new user
+- `POST /auth/login` - login, returns JWT
+- `GET /prices` - current bid/ask/mid for all symbols
+- `GET /symbols` - supported trading pairs with specs
+- `GET /ws` - WebSocket (optional `?token=<jwt>` for authenticated updates)
+
+### Protected Endpoints (require Bearer token)
+- `POST /auth/refresh` - refresh JWT token
+- `GET /user/me` - current user profile
+- `GET /account` - account balance, equity, margin info
+- `POST /orders` - place order
+- `GET /orders` - list orders (query: limit, offset)
+- `GET /orders/{id}` - get order by ID
+- `DELETE /orders/{id}` - cancel pending order
+- `GET /positions` - list open positions
+- `GET /positions/{id}` - get position by ID
+- `POST /positions/{id}/close` - close position
+- `PATCH /positions/{id}` - update TP/SL
+- `GET /trades` - trade history (query: limit, offset)
 
 ## Kafka
 

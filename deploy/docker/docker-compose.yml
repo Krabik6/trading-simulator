@@ -19,6 +19,18 @@ services:
     networks:
       - trading-net
 
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    depends_on:
+      - trading
+    restart: unless-stopped
+    networks:
+      - trading-net
+
   market-data:
     build:
       context: ../../services/market-data
