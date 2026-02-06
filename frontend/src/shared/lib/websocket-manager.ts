@@ -23,6 +23,7 @@ export class WebSocketManager {
 
   connect(token?: string | null) {
     this.token = token ?? null;
+    this.reconnectAttempts = 0;
     this.doConnect();
   }
 

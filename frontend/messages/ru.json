@@ -30,6 +30,8 @@
     "quantity": "Количество",
     "price": "Цена",
     "leverage": "Плечо",
+    "size": "Размер",
+    "margin": "Маржа",
     "stopLoss": "Стоп-лосс",
     "takeProfit": "Тейк-профит",
     "optional": "Необязательно",

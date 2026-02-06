@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { useCreateOrder } from "@/entities/order/model/use-orders";
 import { useActiveSymbol } from "@/features/symbol-selector/SymbolSelector";
 import { usePriceStore } from "@/entities/price/model/price-store";
+import { useAccount } from "@/entities/account/model/use-account";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -22,23 +23,28 @@ import {
 import { toast } from "sonner";
 import axios from "axios";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { OrderSide, OrderType } from "@/entities/order/model/types";
+import { formatCrypto, formatUSD } from "@/shared/lib/format";
 
 const schema = z.object({
   quantity: z.string().min(1),
   price: z.string().optional(),
   leverage: z.number().min(1).max(100),
+  sizePercent: z.number().min(0).max(100),
   stop_loss: z.string().optional(),
   take_profit: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
 
+const PERCENT_PRESETS = [10, 25, 50, 75, 100];
+
 export function PlaceOrderForm() {
   const t = useTranslations("order");
   const symbol = useActiveSymbol((s) => s.symbol);
   const price = usePriceStore((s) => s.prices[symbol]);
+  const { data: account } = useAccount();
   const createOrder = useCreateOrder();
   const [side, setSide] = useState<OrderSide>("BUY");
   const [orderType, setOrderType] = useState<OrderType>("MARKET");
@@ -49,10 +55,34 @@ export function PlaceOrderForm() {
       quantity: "",
       price: "",
       leverage: 10,
+      sizePercent: 0,
       stop_loss: "",
       take_profit: "",
     },
   });
+
+  const leverage = useWatch({ control: form.control, name: "leverage" });
+  const sizePercent = useWatch({ control: form.control, name: "sizePercent" });
+
+  const availableMargin = account ? parseFloat(account.available_margin) : 0;
+  const currentPrice = price?.mid ?? 0;
+
+  const calculatedQty = useMemo(() => {
+    if (!currentPrice || !availableMargin || !sizePercent) return 0;
+    return (availableMargin * (sizePercent / 100) * leverage) / currentPrice;
+  }, [availableMargin, currentPrice, sizePercent, leverage]);
+
+  const marginUsed = useMemo(() => {
+    return availableMargin * (sizePercent / 100);
+  }, [availableMargin, sizePercent]);
+
+  const updateQtyFromPercent = (pct: number) => {
+    form.setValue("sizePercent", pct);
+    if (currentPrice && availableMargin) {
+      const qty = (availableMargin * (pct / 100) * leverage) / currentPrice;
+      form.setValue("quantity", qty > 0 ? qty.toFixed(6) : "");
+    }
+  };
 
   const onSubmit = (v: FormValues) => {
     createOrder.mutate(
@@ -82,7 +112,7 @@ export function PlaceOrderForm() {
     );
   };
 
-  const leverage = useWatch({ control: form.control, name: "leverage" });
+  const baseCurrency = symbol.replace("USDT", "");
 
   return (
     <Form {...form}>
@@ -91,7 +121,10 @@ export function PlaceOrderForm() {
           <Button
             type="button"
             variant={side === "BUY" ? "default" : "outline"}
-            className={cn("flex-1", side === "BUY" && "bg-profit hover:bg-profit/90")}
+            className={cn(
+              "flex-1",
+              side === "BUY" && "bg-profit hover:bg-profit/90",
+            )}
             onClick={() => setSide("BUY")}
           >
             {t("buy")}
@@ -99,7 +132,10 @@ export function PlaceOrderForm() {
           <Button
             type="button"
             variant={side === "SELL" ? "default" : "outline"}
-            className={cn("flex-1", side === "SELL" && "bg-loss hover:bg-loss/90")}
+            className={cn(
+              "flex-1",
+              side === "SELL" && "bg-loss hover:bg-loss/90",
+            )}
             onClick={() => setSide("SELL")}
           >
             {t("sell")}
@@ -128,12 +164,91 @@ export function PlaceOrderForm() {
 
         <FormField
           control={form.control}
+          name="leverage"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                {t("leverage")}: {leverage}x
+              </FormLabel>
+              <FormControl>
+                <Slider
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={[field.value]}
+                  onValueChange={([v]) => {
+                    field.onChange(v);
+                    if (sizePercent > 0) updateQtyFromPercent(sizePercent);
+                  }}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        {/* Size percent slider */}
+        <FormField
+          control={form.control}
+          name="sizePercent"
+          render={() => (
+            <FormItem>
+              <FormLabel>
+                {t("size")}: {sizePercent}%
+              </FormLabel>
+              <FormControl>
+                <Slider
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={[sizePercent]}
+                  onValueChange={([v]) => updateQtyFromPercent(v)}
+                />
+              </FormControl>
+              <div className="flex gap-1">
+                {PERCENT_PRESETS.map((pct) => (
+                  <Button
+                    key={pct}
+                    type="button"
+                    variant={sizePercent === pct ? "default" : "outline"}
+                    size="sm"
+                    className="h-6 flex-1 px-0 text-xs"
+                    onClick={() => updateQtyFromPercent(pct)}
+                  >
+                    {pct}%
+                  </Button>
+                ))}
+              </div>
+              {sizePercent > 0 && currentPrice > 0 && (
+                <div className="text-muted-foreground space-y-0.5 text-xs">
+                  <div>
+                    ≈ {formatCrypto(calculatedQty, 6)} {baseCurrency}
+                  </div>
+                  <div>
+                    {t("margin")}: {formatUSD(marginUsed)} USDT
+                  </div>
+                </div>
+              )}
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
           name="quantity"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t("quantity")}</FormLabel>
+              <FormLabel>
+                {t("quantity")} ({baseCurrency})
+              </FormLabel>
               <FormControl>
-                <Input placeholder="0.01" {...field} />
+                <Input
+                  placeholder="0.001"
+                  {...field}
+                  onChange={(e) => {
+                    field.onChange(e);
+                    form.setValue("sizePercent", 0);
+                  }}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -155,27 +270,6 @@ export function PlaceOrderForm() {
             )}
           />
         )}
-
-        <FormField
-          control={form.control}
-          name="leverage"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>
-                {t("leverage")}: {leverage}x
-              </FormLabel>
-              <FormControl>
-                <Slider
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={[field.value]}
-                  onValueChange={([v]) => field.onChange(v)}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
 
         <div className="grid grid-cols-2 gap-2">
           <FormField

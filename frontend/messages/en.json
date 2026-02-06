@@ -30,6 +30,8 @@
     "quantity": "Quantity",
     "price": "Price",
     "leverage": "Leverage",
+    "size": "Size",
+    "margin": "Margin",
     "stopLoss": "Stop Loss",
     "takeProfit": "Take Profit",
     "optional": "Optional",
