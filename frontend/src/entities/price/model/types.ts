@@ -6,3 +6,13 @@ export interface Price {
   spread: number;
   timestamp: string;
 }
+
+export interface Ticker24h {
+  symbol: string;
+  priceChange: number;
+  priceChangePercent: number;
+  lastPrice: number;
+  highPrice: number;
+  lowPrice: number;
+  volume: number;
+}

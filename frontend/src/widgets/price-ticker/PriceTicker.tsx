@@ -1,8 +1,9 @@
 "use client";
 
 import { usePriceStore } from "@/entities/price/model/price-store";
+import { useTicker24h } from "@/entities/price/model/use-ticker24h";
 import { useActiveSymbol } from "@/features/symbol-selector/SymbolSelector";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { formatCrypto } from "@/shared/lib/format";
 
@@ -12,6 +13,17 @@ export function PriceTicker() {
   const setSymbol = useActiveSymbol((s) => s.setSymbol);
   const prevPrices = useRef<Record<string, number>>({});
   const [prev, setPrev] = useState<Record<string, number>>({});
+
+  const { data: tickers } = useTicker24h();
+
+  const tickerMap = useMemo(() => {
+    if (!tickers) return {};
+    const map: Record<string, { changePercent: number }> = {};
+    for (const t of tickers) {
+      map[t.symbol] = { changePercent: t.priceChangePercent };
+    }
+    return map;
+  }, [tickers]);
 
   useEffect(() => {
     setPrev({ ...prevPrices.current });
@@ -44,15 +56,16 @@ export function PriceTicker() {
                 : "flat"
             : "flat";
 
+        const ticker = tickerMap[p.symbol];
+        const changePercent = ticker?.changePercent;
+
         return (
           <button
             key={p.symbol}
             onClick={() => setSymbol(p.symbol)}
             className={cn(
               "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors",
-              isActive
-                ? "bg-accent border"
-                : "hover:bg-accent/50",
+              isActive ? "bg-accent border" : "hover:bg-accent/50",
             )}
           >
             <span className="text-sm font-semibold">
@@ -67,6 +80,17 @@ export function PriceTicker() {
             >
               {formatCrypto(p.mid, 2)}
             </span>
+            {changePercent !== undefined && (
+              <span
+                className={cn(
+                  "font-mono text-xs font-medium",
+                  changePercent >= 0 ? "text-profit" : "text-loss",
+                )}
+              >
+                {changePercent >= 0 ? "+" : ""}
+                {changePercent.toFixed(2)}%
+              </span>
+            )}
           </button>
         );
       })}

@@ -1,8 +1,13 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchOrders, createOrder, cancelOrder } from "../api/order-api";
-import type { CreateOrderRequest } from "./types";
+import {
+  fetchOrders,
+  createOrder,
+  updateOrder,
+  cancelOrder,
+} from "../api/order-api";
+import type { CreateOrderRequest, UpdateOrderRequest } from "./types";
 
 export const orderKeys = {
   all: ["orders"] as const,
@@ -25,6 +30,17 @@ export function useCreateOrder() {
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["positions"] });
       qc.invalidateQueries({ queryKey: ["account"] });
+    },
+  });
+}
+
+export function useUpdateOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...req }: UpdateOrderRequest & { id: number }) =>
+      updateOrder(id, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orders"] });
     },
   });
 }

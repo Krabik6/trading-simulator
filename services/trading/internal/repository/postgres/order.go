@@ -106,10 +106,14 @@ func (r *OrderRepository) GetPendingBySymbol(ctx context.Context, symbol string)
 func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error {
 	query := `
 		UPDATE orders
-		SET status = $1, filled_at = $2
-		WHERE id = $3`
+		SET status = $1, filled_at = $2, quantity = $3, price = $4,
+		    stop_loss = $5, take_profit = $6, updated_at = NOW()
+		WHERE id = $7`
 
-	result, err := r.db.ExecContext(ctx, query, order.Status, order.FilledAt, order.ID)
+	result, err := r.db.ExecContext(ctx, query,
+		order.Status, order.FilledAt, order.Quantity, order.Price,
+		order.StopLoss, order.TakeProfit, order.ID,
+	)
 	if err != nil {
 		return err
 	}

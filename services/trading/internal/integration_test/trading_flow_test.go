@@ -137,17 +137,17 @@ func TestFullTradingCycle(t *testing.T) {
 	assert.True(t, realizedPnL.Equal(expectedPnL), "PnL = qty * (close - entry)")
 	t.Logf("Step 6: Position closed - PnL=%s", closeResult.RealizedPnL)
 
-	// Step 7: Check account (balance changed by PnL + margin credit)
+	// Step 7: Check account (balance changed by PnL only; margin is virtual)
 	accountResp2 := makeRequest(t, "GET", "/account", nil, user.Token)
 	var accountInfo2 AccountInfo
 	json.NewDecoder(accountResp2.Body).Decode(&accountInfo2)
 	accountResp2.Body.Close()
 
-	// Final balance = initial + margin + PnL = 10000 + 500.1 + (-1) = 10499.1
-	// The system credits margin back when closing position
+	// Final balance = initial + PnL = 10000 + (-1) = 9999
+	// Margin is virtual — never deducted on open, not credited on close
 	finalBalance, _ := decimal.NewFromString(accountInfo2.Balance)
-	expectedBalance := decimal.NewFromFloat(10499.1)
-	assert.True(t, finalBalance.Equal(expectedBalance), "balance = initial + margin + PnL")
+	expectedBalance := decimal.NewFromFloat(9999)
+	assert.True(t, finalBalance.Equal(expectedBalance), "balance = initial + PnL")
 
 	assert.Equal(t, "0.00", accountInfo2.UsedMargin, "margin released after close")
 	t.Logf("Step 7: Account verified - balance=%s, margin=%s", accountInfo2.Balance, accountInfo2.UsedMargin)
@@ -245,14 +245,15 @@ func TestTradingCycle_ShortPosition(t *testing.T) {
 	assert.True(t, realizedPnL.Equal(decimal.NewFromFloat(-2)))
 
 	// Verify final balance
-	// Final balance = initial + margin + PnL = 10000 + 600 + (-2) = 10598
+	// Final balance = initial + PnL = 10000 + (-2) = 9998
+	// Margin is virtual — never deducted on open, not credited on close
 	accountResp := makeRequest(t, "GET", "/account", nil, user.Token)
 	var accountInfo AccountInfo
 	json.NewDecoder(accountResp.Body).Decode(&accountInfo)
 	accountResp.Body.Close()
 
 	finalBalance, _ := decimal.NewFromString(accountInfo.Balance)
-	assert.True(t, finalBalance.Equal(decimal.NewFromFloat(10598)))
+	assert.True(t, finalBalance.Equal(decimal.NewFromFloat(9998)))
 }
 
 func TestTradingCycle_MultiplePositions(t *testing.T) {

@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -32,13 +30,14 @@ import (
 	authuc "trading/internal/usecase/auth"
 	orderuc "trading/internal/usecase/order"
 	positionuc "trading/internal/usecase/position"
+	"trading/migrations"
 )
 
 const (
-	testJWTSecret      = "test-secret-key-for-integration-tests"
-	testJWTExpiry      = 24
-	testInitialBalance = 10000.0
-	testMaxLeverage    = 100
+	testJWTSecret       = "test-secret-key-for-integration-tests"
+	testJWTExpiry       = 24
+	testInitialBalance  = 10000.0
+	testMaxLeverage     = 100
 	testMaintenanceRate = 0.005
 )
 
@@ -209,23 +208,7 @@ func TestMain(m *testing.M) {
 }
 
 func applyMigrations(db *sql.DB) error {
-	// Find migrations directory
-	migrationsDir := "../../migrations"
-
-	// Read migration file
-	migrationPath := filepath.Join(migrationsDir, "001_init.up.sql")
-	migrationSQL, err := os.ReadFile(migrationPath)
-	if err != nil {
-		return fmt.Errorf("read migration file: %w", err)
-	}
-
-	// Execute migration
-	_, err = db.Exec(string(migrationSQL))
-	if err != nil {
-		return fmt.Errorf("execute migration: %w", err)
-	}
-
-	return nil
+	return postgres.RunMigrations(db, migrations.FS)
 }
 
 func setupTestInfrastructure() error {

@@ -22,7 +22,8 @@ export function usePositions() {
 export function useClosePosition() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => closePosition(id),
+    mutationFn: ({ id, quantity }: { id: number; quantity?: string }) =>
+      closePosition(id, quantity),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["positions"] });
       qc.invalidateQueries({ queryKey: ["account"] });

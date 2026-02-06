@@ -1,5 +1,5 @@
 import { api } from "@/shared/api/client";
-import type { Order, CreateOrderRequest } from "../model/types";
+import type { Order, CreateOrderRequest, UpdateOrderRequest } from "../model/types";
 
 export async function fetchOrders(
   limit = 50,
@@ -18,6 +18,14 @@ export async function fetchOrder(id: number): Promise<Order> {
 
 export async function createOrder(req: CreateOrderRequest): Promise<Order> {
   const { data } = await api.post<Order>("/orders", req);
+  return data;
+}
+
+export async function updateOrder(
+  id: number,
+  req: UpdateOrderRequest,
+): Promise<Order> {
+  const { data } = await api.patch<Order>(`/orders/${id}`, req);
   return data;
 }
 

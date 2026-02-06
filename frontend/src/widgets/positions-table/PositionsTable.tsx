@@ -60,10 +60,14 @@ export function PositionsTable() {
                         positionId={p.id}
                         currentSL={p.stop_loss}
                         currentTP={p.take_profit}
+                        currentSLPercent={p.sl_close_percent}
+                        currentTPPercent={p.tp_close_percent}
                       />
                       <ClosePositionButton
                         positionId={p.id}
                         symbol={p.symbol}
+                        quantity={p.quantity}
+                        initialMargin={p.initial_margin}
                       />
                     </div>
                   </td>

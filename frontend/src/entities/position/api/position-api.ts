@@ -13,10 +13,14 @@ export async function fetchPosition(id: number): Promise<Position> {
 
 export async function closePosition(
   id: number,
-): Promise<{ status: string; realized_pnl: string }> {
-  const { data } = await api.post<{ status: string; realized_pnl: string }>(
-    `/positions/${id}/close`,
-  );
+  quantity?: string,
+): Promise<{ status: string; realized_pnl: string; closed_quantity: string }> {
+  const body = quantity ? { quantity } : undefined;
+  const { data } = await api.post<{
+    status: string;
+    realized_pnl: string;
+    closed_quantity: string;
+  }>(`/positions/${id}/close`, body);
   return data;
 }
 

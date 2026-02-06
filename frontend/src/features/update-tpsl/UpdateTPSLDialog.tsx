@@ -22,12 +22,23 @@ import {
   FormLabel,
   FormControl,
 } from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Settings2 } from "lucide-react";
+
+const PERCENT_OPTIONS = [25, 50, 75, 100];
 
 const schema = z.object({
   stop_loss: z.string().optional(),
   take_profit: z.string().optional(),
+  sl_close_percent: z.string(),
+  tp_close_percent: z.string(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -36,10 +47,14 @@ export function UpdateTPSLDialog({
   positionId,
   currentSL,
   currentTP,
+  currentSLPercent,
+  currentTPPercent,
 }: {
   positionId: number;
   currentSL: string | null;
   currentTP: string | null;
+  currentSLPercent?: number;
+  currentTPPercent?: number;
 }) {
   const t = useTranslations("position");
   const [open, setOpen] = useState(false);
@@ -50,6 +65,8 @@ export function UpdateTPSLDialog({
     defaultValues: {
       stop_loss: currentSL ?? "",
       take_profit: currentTP ?? "",
+      sl_close_percent: String(currentSLPercent ?? 100),
+      tp_close_percent: String(currentTPPercent ?? 100),
     },
   });
 
@@ -59,6 +76,8 @@ export function UpdateTPSLDialog({
         id: positionId,
         stop_loss: v.stop_loss || undefined,
         take_profit: v.take_profit || undefined,
+        sl_close_percent: parseInt(v.sl_close_percent),
+        tp_close_percent: parseInt(v.tp_close_percent),
       },
       {
         onSuccess: () => {
@@ -96,6 +115,29 @@ export function UpdateTPSLDialog({
               />
               <FormField
                 control={form.control}
+                name="sl_close_percent"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("slClosePercent")}</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {PERCENT_OPTIONS.map((pct) => (
+                          <SelectItem key={pct} value={String(pct)}>
+                            {pct}%
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="take_profit"
                 render={({ field }) => (
                   <FormItem>
@@ -103,6 +145,29 @@ export function UpdateTPSLDialog({
                     <FormControl>
                       <Input placeholder={t("optional")} {...field} />
                     </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="tp_close_percent"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("tpClosePercent")}</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {PERCENT_OPTIONS.map((pct) => (
+                          <SelectItem key={pct} value={String(pct)}>
+                            {pct}%
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </FormItem>
                 )}
               />

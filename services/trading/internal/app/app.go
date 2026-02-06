@@ -21,6 +21,7 @@ import (
 	orderuc "trading/internal/usecase/order"
 	positionuc "trading/internal/usecase/position"
 	priceuc "trading/internal/usecase/price"
+	"trading/migrations"
 )
 
 type App struct {
@@ -59,6 +60,11 @@ func (a *App) Run(ctx context.Context) error {
 
 	if err := a.db.Connect(connectCtx, 10, 3*time.Second); err != nil {
 		return fmt.Errorf("database connection: %w", err)
+	}
+
+	// Run migrations
+	if err := postgres.RunMigrations(a.db.DB, migrations.FS); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
 	}
 
 	// Initialize repositories
@@ -147,6 +153,8 @@ func (a *App) Run(ctx context.Context) error {
 	tradeHandler := handler.NewTradeHandler(tradeRepo)
 	userHandler := handler.NewUserHandler(userRepo)
 	priceHandler := handler.NewPriceHandler(priceCache, a.config.Trading.SupportedSymbols)
+	candleHandler := handler.NewCandleHandler()
+	tickerHandler := handler.NewTickerHandler(a.config.Trading.SupportedSymbols)
 	wsHandler := handler.NewWebSocketHandler(a.wsHub, jwtService)
 
 	// Initialize middleware
@@ -162,6 +170,8 @@ func (a *App) Run(ctx context.Context) error {
 		TradeHandler:     tradeHandler,
 		UserHandler:      userHandler,
 		PriceHandler:     priceHandler,
+		CandleHandler:    candleHandler,
+		TickerHandler:    tickerHandler,
 		WebSocketHandler: wsHandler,
 		UserRepo:         userRepo,
 		HealthChecker:    a.healthCheck,

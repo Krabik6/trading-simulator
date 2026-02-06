@@ -39,6 +39,8 @@ type Position struct {
 	LiquidationPrice decimal.Decimal
 	StopLoss         *decimal.Decimal
 	TakeProfit       *decimal.Decimal
+	SLClosePercent   int // 1-100, default 100
+	TPClosePercent   int // 1-100, default 100
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	ClosedAt         *time.Time

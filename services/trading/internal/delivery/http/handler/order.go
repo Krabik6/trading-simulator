@@ -187,6 +187,94 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "cancelled"}, http.StatusOK)
 }
 
+type UpdateOrderRequest struct {
+	Price      *string `json:"price"`
+	Quantity   *string `json:"quantity"`
+	StopLoss   *string `json:"stop_loss"`
+	TakeProfit *string `json:"take_profit"`
+}
+
+func (h *OrderHandler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	orderIDStr := chi.URLParam(r, "id")
+	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
+	if err != nil {
+		writeError(w, "invalid order id", http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	input := orderuc.UpdateOrderInput{}
+
+	if req.Price != nil {
+		p, err := decimal.NewFromString(*req.Price)
+		if err != nil {
+			writeError(w, "invalid price", http.StatusBadRequest)
+			return
+		}
+		input.Price = &p
+	}
+
+	if req.Quantity != nil {
+		q, err := decimal.NewFromString(*req.Quantity)
+		if err != nil {
+			writeError(w, "invalid quantity", http.StatusBadRequest)
+			return
+		}
+		input.Quantity = &q
+	}
+
+	if req.StopLoss != nil {
+		if *req.StopLoss == "" {
+			zero := decimal.Zero
+			input.StopLoss = &zero
+		} else {
+			sl, err := decimal.NewFromString(*req.StopLoss)
+			if err != nil {
+				writeError(w, "invalid stop_loss", http.StatusBadRequest)
+				return
+			}
+			input.StopLoss = &sl
+		}
+	}
+
+	if req.TakeProfit != nil {
+		if *req.TakeProfit == "" {
+			zero := decimal.Zero
+			input.TakeProfit = &zero
+		} else {
+			tp, err := decimal.NewFromString(*req.TakeProfit)
+			if err != nil {
+				writeError(w, "invalid take_profit", http.StatusBadRequest)
+				return
+			}
+			input.TakeProfit = &tp
+		}
+	}
+
+	order, err := h.orderUC.UpdateOrder(r.Context(), userID, domain.OrderID(orderID), input)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			writeError(w, "order not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, domain.ErrOrderNotPending) {
+			writeError(w, "only pending orders can be edited", http.StatusBadRequest)
+			return
+		}
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	writeJSON(w, orderToResponse(order), http.StatusOK)
+}
+
 func orderToResponse(o *domain.Order) OrderResponse {
 	resp := OrderResponse{
 		ID:        int64(o.ID),

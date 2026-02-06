@@ -59,6 +59,7 @@ func (uc *UseCase) GetPosition(ctx context.Context, userID domain.UserID, positi
 type ClosePositionInput struct {
 	UserID     domain.UserID
 	PositionID domain.PositionID
+	Quantity   *decimal.Decimal // nil = full close
 }
 
 func (uc *UseCase) ClosePosition(ctx context.Context, input ClosePositionInput) (*domain.Trade, error) {
@@ -89,6 +90,11 @@ func (uc *UseCase) ClosePosition(ctx context.Context, input ClosePositionInput) 
 		closePrice = decimal.NewFromFloat(price.Ask) // buy at ask
 	}
 
+	// Partial close if quantity specified and less than position size
+	if input.Quantity != nil && input.Quantity.IsPositive() && input.Quantity.LessThan(position.Quantity) {
+		return uc.partialCloseAtPrice(ctx, position, closePrice, *input.Quantity, "user")
+	}
+
 	return uc.closePositionAtPrice(ctx, position, closePrice, "user")
 }
 
@@ -117,9 +123,8 @@ func (uc *UseCase) closePositionAtPrice(
 		return nil, err
 	}
 
-	// Credit PnL + margin to account
-	totalCredit := pnl.Add(position.InitialMargin)
-	if err := uc.accountRepo.UpdateBalance(ctx, account.ID, totalCredit); err != nil {
+	// Credit only PnL to account (margin is virtual — never deducted on open)
+	if err := uc.accountRepo.UpdateBalance(ctx, account.ID, pnl); err != nil {
 		return nil, err
 	}
 
@@ -176,11 +181,104 @@ func (uc *UseCase) closePositionAtPrice(
 	return trade, nil
 }
 
+func (uc *UseCase) partialCloseAtPrice(
+	ctx context.Context,
+	position *domain.Position,
+	closePrice decimal.Decimal,
+	quantity decimal.Decimal,
+	reason string,
+) (*domain.Trade, error) {
+	// Calculate proportional PnL
+	proportion := quantity.Div(position.Quantity)
+	fullPnL := uc.engine.ClosePosition(position, closePrice)
+	pnl := fullPnL.Mul(proportion)
+
+	// Get account
+	account, err := uc.accountRepo.GetByUserID(ctx, position.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reduce position
+	marginRelease := position.InitialMargin.Mul(proportion)
+	position.Quantity = position.Quantity.Sub(quantity)
+	position.InitialMargin = position.InitialMargin.Sub(marginRelease)
+
+	// Recalculate liquidation price (entry stays same)
+	position.LiquidationPrice = uc.engine.MarginCalc.CalculateLiquidationPrice(
+		position.EntryPrice, position.Leverage, position.Side,
+	)
+
+	if err := uc.positionRepo.Update(ctx, position); err != nil {
+		return nil, err
+	}
+
+	// Credit only PnL to account (margin is virtual)
+	if err := uc.accountRepo.UpdateBalance(ctx, account.ID, pnl); err != nil {
+		return nil, err
+	}
+
+	// Create a virtual order for the partial close
+	closeSide := domain.OrderSideSell
+	if position.IsShort() {
+		closeSide = domain.OrderSideBuy
+	}
+
+	now := time.Now()
+	order := &domain.Order{
+		UserID:   position.UserID,
+		Symbol:   position.Symbol,
+		Side:     closeSide,
+		Type:     domain.OrderTypeMarket,
+		Status:   domain.OrderStatusFilled,
+		Quantity: quantity,
+		Price:    closePrice,
+		Leverage: position.Leverage,
+		FilledAt: &now,
+	}
+
+	if err := uc.orderRepo.Create(ctx, order); err != nil {
+		return nil, err
+	}
+
+	// Create trade record
+	trade := &domain.Trade{
+		UserID:     position.UserID,
+		PositionID: position.ID,
+		OrderID:    order.ID,
+		Symbol:     position.Symbol,
+		Side:       position.Side,
+		Type:       domain.TradeTypeClose,
+		Quantity:   quantity,
+		Price:      closePrice,
+		PnL:        pnl,
+		Fee:        decimal.Zero,
+	}
+
+	if err := uc.tradeRepo.Create(ctx, trade); err != nil {
+		return nil, err
+	}
+
+	logger.Info("position partially closed",
+		"position_id", position.ID,
+		"symbol", position.Symbol,
+		"side", position.Side,
+		"closed_quantity", quantity,
+		"remaining_quantity", position.Quantity,
+		"pnl", pnl,
+		"reason", reason,
+	)
+
+	return trade, nil
+}
+
 type UpdateTPSLInput struct {
-	UserID     domain.UserID
-	PositionID domain.PositionID
-	StopLoss   *decimal.Decimal
-	TakeProfit *decimal.Decimal
+	UserID         domain.UserID
+	PositionID     domain.PositionID
+	StopLoss       *decimal.Decimal
+	TakeProfit     *decimal.Decimal
+	SLClosePercent *int
+	TPClosePercent *int
 }
 
 func (uc *UseCase) UpdateTPSL(ctx context.Context, input UpdateTPSLInput) (*domain.Position, error) {
@@ -211,6 +309,22 @@ func (uc *UseCase) UpdateTPSL(ctx context.Context, input UpdateTPSLInput) (*doma
 			return nil, err
 		}
 		position.TakeProfit = input.TakeProfit
+	}
+
+	// Update close percents
+	if input.SLClosePercent != nil {
+		v := *input.SLClosePercent
+		if v < 1 || v > 100 {
+			return nil, domain.ErrInvalidClosePercent
+		}
+		position.SLClosePercent = v
+	}
+	if input.TPClosePercent != nil {
+		v := *input.TPClosePercent
+		if v < 1 || v > 100 {
+			return nil, domain.ErrInvalidClosePercent
+		}
+		position.TPClosePercent = v
 	}
 
 	if err := uc.positionRepo.Update(ctx, position); err != nil {
@@ -251,8 +365,8 @@ func (uc *UseCase) Liquidate(ctx context.Context, position *domain.Position, liq
 		return nil, err
 	}
 
-	// No need to update balance - margin was already deducted
-	// The margin is lost in liquidation
+	// Margin was virtual (never deducted from balance on open).
+	// On liquidation the user loses the full margin, so we deduct it now.
 
 	// Create order for record
 	closeSide := domain.OrderSideSell
@@ -312,18 +426,60 @@ func (uc *UseCase) Liquidate(ctx context.Context, position *domain.Position, liq
 	return trade, nil
 }
 
-// TriggerStopLoss closes position at stop loss price
+// TriggerStopLoss closes position at stop loss price (fully or partially based on SLClosePercent)
 func (uc *UseCase) TriggerStopLoss(ctx context.Context, position *domain.Position) (*domain.Trade, error) {
 	if position.StopLoss == nil {
 		return nil, nil
 	}
+
+	pct := position.SLClosePercent
+	if pct <= 0 {
+		pct = 100
+	}
+
+	if pct < 100 {
+		closeQty := position.Quantity.Mul(decimal.NewFromInt(int64(pct))).Div(decimal.NewFromInt(100))
+		trade, err := uc.partialCloseAtPrice(ctx, position, *position.StopLoss, closeQty, "stop_loss")
+		if err != nil {
+			return nil, err
+		}
+		// Clear SL after partial trigger to prevent repeated firing
+		position.StopLoss = nil
+		position.SLClosePercent = 100
+		if err := uc.positionRepo.Update(ctx, position); err != nil {
+			return nil, err
+		}
+		return trade, nil
+	}
+
 	return uc.closePositionAtPrice(ctx, position, *position.StopLoss, "stop_loss")
 }
 
-// TriggerTakeProfit closes position at take profit price
+// TriggerTakeProfit closes position at take profit price (fully or partially based on TPClosePercent)
 func (uc *UseCase) TriggerTakeProfit(ctx context.Context, position *domain.Position) (*domain.Trade, error) {
 	if position.TakeProfit == nil {
 		return nil, nil
 	}
+
+	pct := position.TPClosePercent
+	if pct <= 0 {
+		pct = 100
+	}
+
+	if pct < 100 {
+		closeQty := position.Quantity.Mul(decimal.NewFromInt(int64(pct))).Div(decimal.NewFromInt(100))
+		trade, err := uc.partialCloseAtPrice(ctx, position, *position.TakeProfit, closeQty, "take_profit")
+		if err != nil {
+			return nil, err
+		}
+		// Clear TP after partial trigger to prevent repeated firing
+		position.TakeProfit = nil
+		position.TPClosePercent = 100
+		if err := uc.positionRepo.Update(ctx, position); err != nil {
+			return nil, err
+		}
+		return trade, nil
+	}
+
 	return uc.closePositionAtPrice(ctx, position, *position.TakeProfit, "take_profit")
 }

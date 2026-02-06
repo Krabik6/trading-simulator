@@ -1,16 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useAccount } from "@/entities/account/model/use-account";
+import { useLiveEquity } from "@/entities/account/model/use-live-equity";
 import { LogoutButton } from "@/features/auth/logout/LogoutButton";
 import { LocaleSwitcher } from "@/features/locale-switcher/LocaleSwitcher";
 import { formatUSD } from "@/shared/lib/format";
+import { cn } from "@/lib/utils";
 import { TrendingUp } from "lucide-react";
+
+const navItems = [
+  { href: "/dashboard", key: "dashboard" },
+  { href: "/orders", key: "orders" },
+  { href: "/trades", key: "trades" },
+  { href: "/account", key: "account" },
+] as const;
 
 export function Header() {
   const t = useTranslations("nav");
-  const { data: account } = useAccount();
+  const equity = useLiveEquity();
+  const pathname = usePathname();
 
   return (
     <header className="border-b">
@@ -21,24 +31,29 @@ export function Header() {
             Trading Sim
           </Link>
           <nav className="flex items-center gap-4 text-sm">
-            <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
-              {t("dashboard")}
-            </Link>
-            <Link href="/orders" className="text-muted-foreground hover:text-foreground transition-colors">
-              {t("orders")}
-            </Link>
-            <Link href="/trades" className="text-muted-foreground hover:text-foreground transition-colors">
-              {t("trades")}
-            </Link>
-            <Link href="/account" className="text-muted-foreground hover:text-foreground transition-colors">
-              {t("account")}
-            </Link>
+            {navItems.map(({ href, key }) => {
+              const active = pathname.endsWith(href);
+              return (
+                <Link
+                  key={key}
+                  href={href}
+                  className={cn(
+                    "transition-colors",
+                    active
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(key)}
+                </Link>
+              );
+            })}
           </nav>
         </div>
         <div className="flex items-center gap-4">
-          {account && (
+          {equity !== null && (
             <span className="text-sm font-mono">
-              {formatUSD(account.equity)} USDT
+              {formatUSD(equity)} USDT
             </span>
           )}
           <LocaleSwitcher />

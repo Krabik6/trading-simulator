@@ -317,9 +317,8 @@ func (uc *UseCase) reducePosition(
 		return nil, err
 	}
 
-	// Credit PnL + margin to account
-	totalCredit := pnl.Add(marginRelease)
-	if err := uc.accountRepo.UpdateBalance(ctx, account.ID, totalCredit); err != nil {
+	// Credit only PnL to account (margin is virtual — never deducted on open)
+	if err := uc.accountRepo.UpdateBalance(ctx, account.ID, pnl); err != nil {
 		return nil, err
 	}
 

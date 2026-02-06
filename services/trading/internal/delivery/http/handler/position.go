@@ -37,6 +37,8 @@ type PositionResponse struct {
 	LiquidationPrice string  `json:"liquidation_price"`
 	StopLoss         *string `json:"stop_loss,omitempty"`
 	TakeProfit       *string `json:"take_profit,omitempty"`
+	SLClosePercent   int     `json:"sl_close_percent"`
+	TPClosePercent   int     `json:"tp_close_percent"`
 	CreatedAt        string  `json:"created_at"`
 }
 
@@ -90,10 +92,28 @@ func (h *PositionHandler) ClosePosition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	trade, err := h.positionUC.ClosePosition(r.Context(), positionuc.ClosePositionInput{
+	// Parse optional quantity from body
+	var closeReq struct {
+		Quantity *string `json:"quantity"`
+	}
+	// Body is optional — ignore decode errors (empty body is fine)
+	_ = json.NewDecoder(r.Body).Decode(&closeReq)
+
+	input := positionuc.ClosePositionInput{
 		UserID:     userID,
 		PositionID: domain.PositionID(positionID),
-	})
+	}
+
+	if closeReq.Quantity != nil {
+		qty, err := decimal.NewFromString(*closeReq.Quantity)
+		if err != nil || !qty.IsPositive() {
+			writeError(w, "invalid quantity", http.StatusBadRequest)
+			return
+		}
+		input.Quantity = &qty
+	}
+
+	trade, err := h.positionUC.ClosePosition(r.Context(), input)
 	if err != nil {
 		if errors.Is(err, domain.ErrPositionNotFound) {
 			writeError(w, "position not found", http.StatusNotFound)
@@ -111,15 +131,23 @@ func (h *PositionHandler) ClosePosition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, map[string]interface{}{
-		"status":       "closed",
-		"realized_pnl": trade.PnL.String(),
-	}, http.StatusOK)
+	resp := map[string]interface{}{
+		"realized_pnl":    trade.PnL.String(),
+		"closed_quantity": trade.Quantity.String(),
+	}
+	if input.Quantity != nil {
+		resp["status"] = "partial"
+	} else {
+		resp["status"] = "closed"
+	}
+	writeJSON(w, resp, http.StatusOK)
 }
 
 type UpdateTPSLRequest struct {
-	StopLoss   *string `json:"stop_loss"`
-	TakeProfit *string `json:"take_profit"`
+	StopLoss       *string `json:"stop_loss"`
+	TakeProfit     *string `json:"take_profit"`
+	SLClosePercent *int    `json:"sl_close_percent,omitempty"`
+	TPClosePercent *int    `json:"tp_close_percent,omitempty"`
 }
 
 func (h *PositionHandler) UpdateTPSL(w http.ResponseWriter, r *http.Request) {
@@ -157,10 +185,12 @@ func (h *PositionHandler) UpdateTPSL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	position, err := h.positionUC.UpdateTPSL(r.Context(), positionuc.UpdateTPSLInput{
-		UserID:     userID,
-		PositionID: domain.PositionID(positionID),
-		StopLoss:   stopLoss,
-		TakeProfit: takeProfit,
+		UserID:         userID,
+		PositionID:     domain.PositionID(positionID),
+		StopLoss:       stopLoss,
+		TakeProfit:     takeProfit,
+		SLClosePercent: req.SLClosePercent,
+		TPClosePercent: req.TPClosePercent,
 	})
 	if err != nil {
 		if errors.Is(err, domain.ErrPositionNotFound) {
@@ -177,6 +207,10 @@ func (h *PositionHandler) UpdateTPSL(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, domain.ErrInvalidTakeProfit) {
 			writeError(w, "invalid take profit value", http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidClosePercent) {
+			writeError(w, "close percent must be between 1 and 100", http.StatusBadRequest)
 			return
 		}
 		writeError(w, "failed to update position", http.StatusInternalServerError)
@@ -200,6 +234,8 @@ func positionToResponse(p *domain.Position) PositionResponse {
 		UnrealizedPnL:    p.UnrealizedPnL.String(),
 		RealizedPnL:      p.RealizedPnL.String(),
 		LiquidationPrice: p.LiquidationPrice.String(),
+		SLClosePercent:   p.SLClosePercent,
+		TPClosePercent:   p.TPClosePercent,
 		CreatedAt:        p.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if p.StopLoss != nil {

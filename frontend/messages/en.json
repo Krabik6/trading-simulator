@@ -55,6 +55,12 @@
     "all": "All",
     "pending": "Pending",
     "noOrders": "No orders yet",
+    "openOrders": "Open Orders",
+    "noOpenOrders": "No open orders",
+    "editOrder": "Edit Order",
+    "orderUpdated": "Order updated",
+    "updateFailed": "Failed to update order",
+    "save": "Save",
     "prev": "Previous",
     "next": "Next"
   },
@@ -84,7 +90,11 @@
     "save": "Save",
     "cancel": "Cancel",
     "tpslUpdated": "TP/SL updated",
-    "tpslFailed": "Failed to update TP/SL"
+    "tpslFailed": "Failed to update TP/SL",
+    "closeQuantity": "Close Quantity",
+    "currentQty": "Current quantity",
+    "slClosePercent": "SL Close %",
+    "tpClosePercent": "TP Close %"
   },
   "trade": {
     "tradeHistory": "Trade History",

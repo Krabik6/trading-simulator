@@ -16,10 +16,14 @@ export interface Position {
   liquidation_price: string;
   stop_loss: string | null;
   take_profit: string | null;
+  sl_close_percent: number;
+  tp_close_percent: number;
   created_at: string;
 }
 
 export interface UpdateTPSLRequest {
   stop_loss?: string | null;
   take_profit?: string | null;
+  sl_close_percent?: number;
+  tp_close_percent?: number;
 }

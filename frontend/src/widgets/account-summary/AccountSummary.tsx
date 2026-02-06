@@ -49,7 +49,16 @@ export function AccountSummary() {
           <span className="text-muted-foreground text-xs">
             {t("unrealizedPnl")}
           </span>
-          <PnLDisplay value={account.unrealized_pnl} />
+          <PnLDisplay
+            value={account.unrealized_pnl}
+            percent={
+              parseFloat(account.balance) > 0
+                ? (parseFloat(account.unrealized_pnl) /
+                    parseFloat(account.balance)) *
+                  100
+                : 0
+            }
+          />
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-muted-foreground text-xs">

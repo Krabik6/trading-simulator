@@ -11,6 +11,10 @@ export function PositionRow({ position }: { position: Position }) {
   const pnl = live?.unrealized_pnl ?? position.unrealized_pnl;
   const markPrice = live?.mark_price ?? position.mark_price;
 
+  const pnlNum = typeof pnl === "string" ? parseFloat(pnl) : pnl;
+  const margin = parseFloat(position.initial_margin);
+  const pnlPercent = margin > 0 ? (pnlNum / margin) * 100 : 0;
+
   return (
     <>
       <td className="px-3 py-2 text-sm font-medium">{position.symbol}</td>
@@ -31,7 +35,7 @@ export function PositionRow({ position }: { position: Position }) {
       <td className="px-3 py-2 text-sm font-mono">{formatUSD(markPrice)}</td>
       <td className="px-3 py-2 text-sm">{position.leverage}x</td>
       <td className="px-3 py-2">
-        <PnLDisplay value={pnl} />
+        <PnLDisplay value={pnl} percent={pnlPercent} />
       </td>
       <td className="px-3 py-2 text-sm font-mono">
         {formatUSD(position.liquidation_price)}

@@ -94,6 +94,8 @@ func (e *Engine) CreatePosition(
 		LiquidationPrice: liquidationPrice,
 		StopLoss:         stopLoss,
 		TakeProfit:       takeProfit,
+		SLClosePercent:   100,
+		TPClosePercent:   100,
 	}
 }
 

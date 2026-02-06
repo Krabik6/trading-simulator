@@ -25,6 +25,8 @@ type RouterDeps struct {
 	TradeHandler     *handler.TradeHandler
 	UserHandler      *handler.UserHandler
 	PriceHandler     *handler.PriceHandler
+	CandleHandler    *handler.CandleHandler
+	TickerHandler    *handler.TickerHandler
 	WebSocketHandler *handler.WebSocketHandler
 	UserRepo         domain.UserRepository
 	HealthChecker    func() error
@@ -55,6 +57,12 @@ func NewRouter(deps RouterDeps) *Router {
 		r.Get("/prices", deps.PriceHandler.GetPrices)
 		r.Get("/symbols", deps.PriceHandler.GetSymbols)
 	}
+	if deps.CandleHandler != nil {
+		r.Get("/candles", deps.CandleHandler.GetCandles)
+	}
+	if deps.TickerHandler != nil {
+		r.Get("/ticker24h", deps.TickerHandler.GetTicker24h)
+	}
 
 	// Auth endpoints (no auth)
 	r.Post("/auth/register", deps.AuthHandler.Register)
@@ -79,6 +87,7 @@ func NewRouter(deps RouterDeps) *Router {
 		r.Post("/orders", deps.OrderHandler.PlaceOrder)
 		r.Get("/orders", deps.OrderHandler.GetOrders)
 		r.Get("/orders/{id}", deps.OrderHandler.GetOrder)
+		r.Patch("/orders/{id}", deps.OrderHandler.UpdateOrder)
 		r.Delete("/orders/{id}", deps.OrderHandler.CancelOrder)
 
 		// Positions

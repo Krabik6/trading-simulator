@@ -55,6 +55,12 @@
     "all": "Все",
     "pending": "Ожидающие",
     "noOrders": "Ордеров пока нет",
+    "openOrders": "Открытые ордера",
+    "noOpenOrders": "Нет открытых ордеров",
+    "editOrder": "Редактировать ордер",
+    "orderUpdated": "Ордер обновлён",
+    "updateFailed": "Ошибка обновления ордера",
+    "save": "Сохранить",
     "prev": "Назад",
     "next": "Далее"
   },
@@ -84,7 +90,11 @@
     "save": "Сохранить",
     "cancel": "Отмена",
     "tpslUpdated": "TP/SL обновлён",
-    "tpslFailed": "Ошибка обновления TP/SL"
+    "tpslFailed": "Ошибка обновления TP/SL",
+    "closeQuantity": "Количество закрытия",
+    "currentQty": "Текущее количество",
+    "slClosePercent": "SL закрыть %",
+    "tpClosePercent": "TP закрыть %"
   },
   "trade": {
     "tradeHistory": "История сделок",

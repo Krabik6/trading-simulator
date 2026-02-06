@@ -26,3 +26,10 @@ export interface CreateOrderRequest {
   stop_loss?: string;
   take_profit?: string;
 }
+
+export interface UpdateOrderRequest {
+  price?: string;
+  quantity?: string;
+  stop_loss?: string | null;
+  take_profit?: string | null;
+}

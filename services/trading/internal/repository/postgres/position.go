@@ -23,8 +23,9 @@ func (r *PositionRepository) Create(ctx context.Context, position *domain.Positi
 		INSERT INTO positions (
 			user_id, symbol, side, status, quantity, entry_price, leverage,
 			initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			liquidation_price, stop_loss, take_profit, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+			liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
 		RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRowContext(ctx, query,
@@ -33,6 +34,7 @@ func (r *PositionRepository) Create(ctx context.Context, position *domain.Positi
 		position.InitialMargin, position.MarkPrice, position.UnrealizedPnL,
 		position.RealizedPnL, position.LiquidationPrice,
 		position.StopLoss, position.TakeProfit,
+		position.SLClosePercent, position.TPClosePercent,
 	).Scan(&position.ID, &position.CreatedAt, &position.UpdatedAt)
 }
 
@@ -40,7 +42,8 @@ func (r *PositionRepository) GetByID(ctx context.Context, id domain.PositionID) 
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE id = $1`
 
@@ -51,6 +54,7 @@ func (r *PositionRepository) GetByID(ctx context.Context, id domain.PositionID) 
 		&position.InitialMargin, &position.MarkPrice, &position.UnrealizedPnL,
 		&position.RealizedPnL, &position.LiquidationPrice,
 		&position.StopLoss, &position.TakeProfit,
+		&position.SLClosePercent, &position.TPClosePercent,
 		&position.CreatedAt, &position.UpdatedAt, &position.ClosedAt,
 	)
 	if err != nil {
@@ -66,7 +70,8 @@ func (r *PositionRepository) GetByUserID(ctx context.Context, userID domain.User
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE user_id = $1
 		ORDER BY created_at DESC`
@@ -84,7 +89,8 @@ func (r *PositionRepository) GetOpenByUserID(ctx context.Context, userID domain.
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE user_id = $1 AND status = 'OPEN'
 		ORDER BY created_at DESC`
@@ -102,7 +108,8 @@ func (r *PositionRepository) GetOpenByUserIDAndSymbol(ctx context.Context, userI
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE user_id = $1 AND symbol = $2 AND status = 'OPEN'`
 
@@ -113,6 +120,7 @@ func (r *PositionRepository) GetOpenByUserIDAndSymbol(ctx context.Context, userI
 		&position.InitialMargin, &position.MarkPrice, &position.UnrealizedPnL,
 		&position.RealizedPnL, &position.LiquidationPrice,
 		&position.StopLoss, &position.TakeProfit,
+		&position.SLClosePercent, &position.TPClosePercent,
 		&position.CreatedAt, &position.UpdatedAt, &position.ClosedAt,
 	)
 	if err != nil {
@@ -128,7 +136,8 @@ func (r *PositionRepository) GetAllOpen(ctx context.Context) ([]domain.Position,
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE status = 'OPEN'`
 
@@ -145,7 +154,8 @@ func (r *PositionRepository) GetOpenBySymbol(ctx context.Context, symbol string)
 	query := `
 		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
 			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, created_at, updated_at, closed_at
+			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+			   created_at, updated_at, closed_at
 		FROM positions
 		WHERE symbol = $1 AND status = 'OPEN'`
 
@@ -163,13 +173,15 @@ func (r *PositionRepository) Update(ctx context.Context, position *domain.Positi
 		UPDATE positions
 		SET status = $1, quantity = $2, entry_price = $3, initial_margin = $4,
 			mark_price = $5, unrealized_pnl = $6, realized_pnl = $7,
-			liquidation_price = $8, stop_loss = $9, take_profit = $10, closed_at = $11
-		WHERE id = $12`
+			liquidation_price = $8, stop_loss = $9, take_profit = $10,
+			sl_close_percent = $11, tp_close_percent = $12, closed_at = $13
+		WHERE id = $14`
 
 	result, err := r.db.ExecContext(ctx, query,
 		position.Status, position.Quantity, position.EntryPrice, position.InitialMargin,
 		position.MarkPrice, position.UnrealizedPnL, position.RealizedPnL,
 		position.LiquidationPrice, position.StopLoss, position.TakeProfit,
+		position.SLClosePercent, position.TPClosePercent,
 		position.ClosedAt, position.ID,
 	)
 	if err != nil {
@@ -217,6 +229,7 @@ func (r *PositionRepository) scanPositions(rows *sql.Rows) ([]domain.Position, e
 			&p.InitialMargin, &p.MarkPrice, &p.UnrealizedPnL,
 			&p.RealizedPnL, &p.LiquidationPrice,
 			&p.StopLoss, &p.TakeProfit,
+			&p.SLClosePercent, &p.TPClosePercent,
 			&p.CreatedAt, &p.UpdatedAt, &p.ClosedAt,
 		)
 		if err != nil {
