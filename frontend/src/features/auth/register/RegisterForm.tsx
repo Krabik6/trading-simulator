@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/form";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import { EmailInput } from "@/shared/ui/email-input";
 
 const schema = z
   .object({
@@ -69,7 +70,12 @@ export function RegisterForm() {
             <FormItem>
               <FormLabel>{t("email")}</FormLabel>
               <FormControl>
-                <Input placeholder="user@example.com" {...field} />
+                <EmailInput
+                  placeholder="user@example.com"
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
