@@ -3,9 +3,11 @@ package price
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/shopspring/decimal"
 
+	"trading/internal/delivery/ws"
 	"trading/internal/domain"
 	"trading/internal/engine"
 	"trading/internal/kafka"
@@ -20,8 +22,11 @@ type Processor struct {
 	engine        *engine.Engine
 	tradeProducer *kafka.TradeProducer
 	positionUC    *positionuc.UseCase
+	wsHub         *ws.Hub
 
-	mu sync.RWMutex
+	mu              sync.RWMutex
+	lastBroadcast   time.Time
+	broadcastPeriod time.Duration
 }
 
 func NewProcessor(
@@ -30,13 +35,16 @@ func NewProcessor(
 	eng *engine.Engine,
 	tradeProducer *kafka.TradeProducer,
 	positionUC *positionuc.UseCase,
+	wsHub *ws.Hub,
 ) *Processor {
 	return &Processor{
-		positionRepo:  positionRepo,
-		priceCache:    priceCache,
-		engine:        eng,
-		tradeProducer: tradeProducer,
-		positionUC:    positionUC,
+		positionRepo:    positionRepo,
+		priceCache:      priceCache,
+		engine:          eng,
+		tradeProducer:   tradeProducer,
+		positionUC:      positionUC,
+		wsHub:           wsHub,
+		broadcastPeriod: 100 * time.Millisecond, // Broadcast at most 10 times per second
 	}
 }
 
@@ -45,6 +53,18 @@ func (p *Processor) ProcessPrice(ctx context.Context, price *domain.Price) error
 	// Update price cache
 	p.priceCache.Set(price.Symbol, price)
 	metrics.RecordPriceUpdate(price.Symbol)
+
+	// Broadcast prices via WebSocket (rate-limited)
+	p.mu.Lock()
+	shouldBroadcast := time.Since(p.lastBroadcast) >= p.broadcastPeriod
+	if shouldBroadcast {
+		p.lastBroadcast = time.Now()
+	}
+	p.mu.Unlock()
+
+	if shouldBroadcast && p.wsHub != nil {
+		p.wsHub.BroadcastPrices(p.priceCache.GetAll())
+	}
 
 	// Get all open positions for this symbol
 	positions, err := p.positionRepo.GetOpenBySymbol(ctx, price.Symbol)
@@ -92,7 +112,16 @@ func (p *Processor) processPosition(ctx context.Context, position *domain.Positi
 
 	// Just update PnL
 	p.engine.UpdatePositionPnL(position, markPrice)
-	return p.positionRepo.UpdatePnL(ctx, position.ID, markPrice, position.UnrealizedPnL)
+	if err := p.positionRepo.UpdatePnL(ctx, position.ID, markPrice, position.UnrealizedPnL); err != nil {
+		return err
+	}
+
+	// Broadcast position update via WebSocket
+	if p.wsHub != nil {
+		p.wsHub.BroadcastPositionUpdate(position.UserID, position)
+	}
+
+	return nil
 }
 
 func (p *Processor) handleLiquidation(ctx context.Context, position *domain.Position, liquidationPrice decimal.Decimal) error {
@@ -112,6 +141,11 @@ func (p *Processor) handleLiquidation(ctx context.Context, position *domain.Posi
 		if err := p.tradeProducer.PublishTrade(ctx, trade); err != nil {
 			logger.Error("failed to publish liquidation trade", "error", err)
 		}
+	}
+
+	// Broadcast position close via WebSocket
+	if p.wsHub != nil && trade != nil {
+		p.wsHub.BroadcastPositionClose(position.UserID, position.ID, trade.PnL.String())
 	}
 
 	return nil
@@ -136,6 +170,11 @@ func (p *Processor) handleStopLoss(ctx context.Context, position *domain.Positio
 		}
 	}
 
+	// Broadcast position close via WebSocket
+	if p.wsHub != nil && trade != nil {
+		p.wsHub.BroadcastPositionClose(position.UserID, position.ID, trade.PnL.String())
+	}
+
 	return nil
 }
 
@@ -156,6 +195,11 @@ func (p *Processor) handleTakeProfit(ctx context.Context, position *domain.Posit
 		if err := p.tradeProducer.PublishTrade(ctx, trade); err != nil {
 			logger.Error("failed to publish take profit trade", "error", err)
 		}
+	}
+
+	// Broadcast position close via WebSocket
+	if p.wsHub != nil && trade != nil {
+		p.wsHub.BroadcastPositionClose(position.UserID, position.ID, trade.PnL.String())
 	}
 
 	return nil

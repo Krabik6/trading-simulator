@@ -9,6 +9,7 @@ import (
 
 	"trading/internal/delivery/http/handler"
 	"trading/internal/delivery/http/middleware"
+	"trading/internal/domain"
 )
 
 type Router struct {
@@ -16,19 +17,24 @@ type Router struct {
 }
 
 type RouterDeps struct {
-	AuthMiddleware  *middleware.AuthMiddleware
-	AuthHandler     *handler.AuthHandler
-	AccountHandler  *handler.AccountHandler
-	OrderHandler    *handler.OrderHandler
-	PositionHandler *handler.PositionHandler
-	TradeHandler    *handler.TradeHandler
-	HealthChecker   func() error
+	AuthMiddleware   *middleware.AuthMiddleware
+	AuthHandler      *handler.AuthHandler
+	AccountHandler   *handler.AccountHandler
+	OrderHandler     *handler.OrderHandler
+	PositionHandler  *handler.PositionHandler
+	TradeHandler     *handler.TradeHandler
+	UserHandler      *handler.UserHandler
+	PriceHandler     *handler.PriceHandler
+	WebSocketHandler *handler.WebSocketHandler
+	UserRepo         domain.UserRepository
+	HealthChecker    func() error
 }
 
 func NewRouter(deps RouterDeps) *Router {
 	r := chi.NewRouter()
 
 	// Global middleware
+	r.Use(middleware.CORS())
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
@@ -39,6 +45,17 @@ func NewRouter(deps RouterDeps) *Router {
 	r.Get("/ready", readyHandler(deps.HealthChecker))
 	r.Handle("/metrics", promhttp.Handler())
 
+	// WebSocket endpoint (auth via query param)
+	if deps.WebSocketHandler != nil {
+		r.Get("/ws", deps.WebSocketHandler.HandleWs)
+	}
+
+	// Public endpoints (no auth)
+	if deps.PriceHandler != nil {
+		r.Get("/prices", deps.PriceHandler.GetPrices)
+		r.Get("/symbols", deps.PriceHandler.GetSymbols)
+	}
+
 	// Auth endpoints (no auth)
 	r.Post("/auth/register", deps.AuthHandler.Register)
 	r.Post("/auth/login", deps.AuthHandler.Login)
@@ -47,16 +64,26 @@ func NewRouter(deps RouterDeps) *Router {
 	r.Group(func(r chi.Router) {
 		r.Use(deps.AuthMiddleware.Authenticate)
 
+		// Auth
+		r.Post("/auth/refresh", deps.AuthHandler.Refresh)
+
+		// User
+		if deps.UserHandler != nil {
+			r.Get("/user/me", deps.UserHandler.GetMe)
+		}
+
 		// Account
 		r.Get("/account", deps.AccountHandler.GetAccount)
 
 		// Orders
 		r.Post("/orders", deps.OrderHandler.PlaceOrder)
 		r.Get("/orders", deps.OrderHandler.GetOrders)
+		r.Get("/orders/{id}", deps.OrderHandler.GetOrder)
 		r.Delete("/orders/{id}", deps.OrderHandler.CancelOrder)
 
 		// Positions
 		r.Get("/positions", deps.PositionHandler.GetPositions)
+		r.Get("/positions/{id}", deps.PositionHandler.GetPosition)
 		r.Post("/positions/{id}/close", deps.PositionHandler.ClosePosition)
 		r.Patch("/positions/{id}", deps.PositionHandler.UpdateTPSL)
 

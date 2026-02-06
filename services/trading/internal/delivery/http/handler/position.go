@@ -57,6 +57,29 @@ func (h *PositionHandler) GetPositions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response, http.StatusOK)
 }
 
+func (h *PositionHandler) GetPosition(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	positionIDStr := chi.URLParam(r, "id")
+	positionID, err := strconv.ParseInt(positionIDStr, 10, 64)
+	if err != nil {
+		writeError(w, "invalid position id", http.StatusBadRequest)
+		return
+	}
+
+	position, err := h.positionUC.GetPosition(r.Context(), userID, domain.PositionID(positionID))
+	if err != nil {
+		if errors.Is(err, domain.ErrPositionNotFound) {
+			writeError(w, "position not found", http.StatusNotFound)
+			return
+		}
+		writeError(w, "failed to get position", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, positionToResponse(position), http.StatusOK)
+}
+
 func (h *PositionHandler) ClosePosition(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
@@ -89,7 +112,7 @@ func (h *PositionHandler) ClosePosition(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"status":      "closed",
+		"status":       "closed",
 		"realized_pnl": trade.PnL.String(),
 	}, http.StatusOK)
 }

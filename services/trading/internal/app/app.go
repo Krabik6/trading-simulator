@@ -11,6 +11,7 @@ import (
 	httpdelivery "trading/internal/delivery/http"
 	"trading/internal/delivery/http/handler"
 	"trading/internal/delivery/http/middleware"
+	"trading/internal/delivery/ws"
 	"trading/internal/engine"
 	"trading/internal/kafka"
 	"trading/internal/logger"
@@ -30,6 +31,7 @@ type App struct {
 	priceConsumer  *kafka.PriceConsumer
 	tradeProducer  *kafka.TradeProducer
 	priceProcessor *priceuc.Processor
+	wsHub          *ws.Hub
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -123,13 +125,18 @@ func (a *App) Run(ctx context.Context) error {
 
 	accountUC := accountuc.NewUseCase(accountRepo, positionRepo)
 
-	// Initialize price processor
+	// Initialize WebSocket hub
+	a.wsHub = ws.NewHub()
+	go a.wsHub.Run()
+
+	// Initialize price processor with WebSocket hub
 	a.priceProcessor = priceuc.NewProcessor(
 		positionRepo,
 		priceCache,
 		eng,
 		a.tradeProducer,
 		positionUC,
+		a.wsHub,
 	)
 
 	// Initialize handlers
@@ -138,19 +145,26 @@ func (a *App) Run(ctx context.Context) error {
 	orderHandler := handler.NewOrderHandler(orderUC)
 	positionHandler := handler.NewPositionHandler(positionUC)
 	tradeHandler := handler.NewTradeHandler(tradeRepo)
+	userHandler := handler.NewUserHandler(userRepo)
+	priceHandler := handler.NewPriceHandler(priceCache, a.config.Trading.SupportedSymbols)
+	wsHandler := handler.NewWebSocketHandler(a.wsHub, jwtService)
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
 
 	// Create router
 	router := httpdelivery.NewRouter(httpdelivery.RouterDeps{
-		AuthMiddleware:  authMiddleware,
-		AuthHandler:     authHandler,
-		AccountHandler:  accountHandler,
-		OrderHandler:    orderHandler,
-		PositionHandler: positionHandler,
-		TradeHandler:    tradeHandler,
-		HealthChecker:   a.healthCheck,
+		AuthMiddleware:   authMiddleware,
+		AuthHandler:      authHandler,
+		AccountHandler:   accountHandler,
+		OrderHandler:     orderHandler,
+		PositionHandler:  positionHandler,
+		TradeHandler:     tradeHandler,
+		UserHandler:      userHandler,
+		PriceHandler:     priceHandler,
+		WebSocketHandler: wsHandler,
+		UserRepo:         userRepo,
+		HealthChecker:    a.healthCheck,
 	})
 
 	// Start HTTP server

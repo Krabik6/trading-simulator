@@ -24,10 +24,10 @@ func NewOrderHandler(orderUC *orderuc.UseCase) *OrderHandler {
 
 type PlaceOrderRequest struct {
 	Symbol     string  `json:"symbol"`
-	Side       string  `json:"side"`        // BUY or SELL
-	Type       string  `json:"type"`        // MARKET or LIMIT
-	Quantity   string  `json:"quantity"`    // decimal string
-	Price      string  `json:"price"`       // for limit orders
+	Side       string  `json:"side"`     // BUY or SELL
+	Type       string  `json:"type"`     // MARKET or LIMIT
+	Quantity   string  `json:"quantity"` // decimal string
+	Price      string  `json:"price"`    // for limit orders
 	Leverage   int     `json:"leverage"`
 	StopLoss   *string `json:"stop_loss"`   // optional
 	TakeProfit *string `json:"take_profit"` // optional
@@ -136,6 +136,29 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, response, http.StatusOK)
+}
+
+func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	orderIDStr := chi.URLParam(r, "id")
+	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
+	if err != nil {
+		writeError(w, "invalid order id", http.StatusBadRequest)
+		return
+	}
+
+	order, err := h.orderUC.GetOrder(r.Context(), userID, domain.OrderID(orderID))
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			writeError(w, "order not found", http.StatusNotFound)
+			return
+		}
+		writeError(w, "failed to get order", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, orderToResponse(order), http.StatusOK)
 }
 
 func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {

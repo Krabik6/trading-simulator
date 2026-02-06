@@ -8,6 +8,20 @@ import (
 	"trading/internal/metrics"
 )
 
+func (uc *UseCase) GetOrder(ctx context.Context, userID domain.UserID, orderID domain.OrderID) (*domain.Order, error) {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify ownership
+	if order.UserID != userID {
+		return nil, domain.ErrOrderNotFound
+	}
+
+	return order, nil
+}
+
 func (uc *UseCase) CancelOrder(ctx context.Context, userID domain.UserID, orderID domain.OrderID) error {
 	order, err := uc.orderRepo.GetByID(ctx, orderID)
 	if err != nil {

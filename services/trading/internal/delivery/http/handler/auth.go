@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"trading/internal/delivery/http/middleware"
 	"trading/internal/domain"
 	authuc "trading/internal/usecase/auth"
 )
@@ -75,6 +76,23 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, "login failed", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, AuthResponse{
+		UserID: output.UserID,
+		Token:  output.Token,
+	}, http.StatusOK)
+}
+
+// Refresh generates a new JWT token for the authenticated user
+// POST /auth/refresh
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	output, err := h.authUC.RefreshToken(r.Context(), userID)
+	if err != nil {
+		writeError(w, "failed to refresh token", http.StatusInternalServerError)
 		return
 	}
 

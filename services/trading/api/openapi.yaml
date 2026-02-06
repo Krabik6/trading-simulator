@@ -1,0 +1,851 @@
+openapi: 3.0.3
+info:
+  title: Trading Simulator API
+  description: |
+    API для симулятора маржинальной криптоторговли.
+
+    ## Аутентификация
+    Все защищённые эндпоинты требуют JWT токен в заголовке:
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    ## WebSocket
+    Для real-time обновлений подключитесь к `/ws?token=<jwt>`.
+    Без токена будут приходить только обновления цен.
+
+    ## Типы ордеров
+    - **MARKET** - исполняется сразу по текущей рыночной цене
+    - **LIMIT** - ожидает достижения указанной цены (в разработке)
+
+    ## Расчёт маржи
+    - Initial Margin = (Quantity × Price) / Leverage
+    - Liquidation Price рассчитывается автоматически
+  version: 1.0.0
+  contact:
+    name: Trading Simulator
+servers:
+  - url: http://localhost:8081
+    description: Local development server
+
+tags:
+  - name: Auth
+    description: Аутентификация и регистрация
+  - name: Account
+    description: Управление аккаунтом
+  - name: Orders
+    description: Управление ордерами
+  - name: Positions
+    description: Управление позициями
+  - name: Trades
+    description: История сделок
+  - name: Market
+    description: Рыночные данные
+  - name: User
+    description: Профиль пользователя
+  - name: WebSocket
+    description: Real-time обновления
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Проверка работоспособности сервиса
+      tags: [System]
+      responses:
+        '200':
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+  /ready:
+    get:
+      summary: Readiness check
+      description: Проверка готовности сервиса (БД, Kafka)
+      tags: [System]
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+        '503':
+          description: Сервис не готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/register:
+    post:
+      summary: Регистрация нового пользователя
+      description: Создаёт пользователя с начальным балансом 10000 USDT
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Неверные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email уже используется
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      summary: Вход в систему
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учётные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      summary: Обновление токена
+      description: Генерирует новый JWT токен
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Токен обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Требуется аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /user/me:
+    get:
+      summary: Профиль текущего пользователя
+      tags: [User]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Требуется аутентификация
+
+  /account:
+    get:
+      summary: Получить информацию об аккаунте
+      description: Возвращает баланс, маржу и equity
+      tags: [Account]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Информация об аккаунте
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          description: Требуется аутентификация
+
+  /prices:
+    get:
+      summary: Получить текущие цены
+      description: Возвращает bid/ask/mid для всех торговых пар
+      tags: [Market]
+      responses:
+        '200':
+          description: Список цен
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Price'
+
+  /symbols:
+    get:
+      summary: Получить список торговых пар
+      description: Возвращает поддерживаемые символы с параметрами
+      tags: [Market]
+      responses:
+        '200':
+          description: Список символов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Symbol'
+
+  /orders:
+    get:
+      summary: Получить список ордеров
+      tags: [Orders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Список ордеров
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+        '401':
+          description: Требуется аутентификация
+
+    post:
+      summary: Разместить ордер
+      description: |
+        Создаёт market или limit ордер.
+        Market ордер исполняется сразу и открывает позицию.
+      tags: [Orders]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrderRequest'
+      responses:
+        '201':
+          description: Ордер создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: Неверные параметры
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Недостаточно маржи
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Цена недоступна
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /orders/{id}:
+    get:
+      summary: Получить ордер по ID
+      tags: [Orders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Данные ордера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: Ордер не найден
+
+    delete:
+      summary: Отменить ордер
+      description: Отменяет pending ордер
+      tags: [Orders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Ордер отменён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: cancelled
+        '400':
+          description: Ордер нельзя отменить
+        '404':
+          description: Ордер не найден
+
+  /positions:
+    get:
+      summary: Получить открытые позиции
+      tags: [Positions]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список позиций
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+        '401':
+          description: Требуется аутентификация
+
+  /positions/{id}:
+    get:
+      summary: Получить позицию по ID
+      tags: [Positions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Данные позиции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Position'
+        '404':
+          description: Позиция не найдена
+
+    patch:
+      summary: Обновить Stop Loss / Take Profit
+      tags: [Positions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTPSLRequest'
+      responses:
+        '200':
+          description: Позиция обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Position'
+        '400':
+          description: Неверные значения SL/TP
+        '404':
+          description: Позиция не найдена
+
+  /positions/{id}/close:
+    post:
+      summary: Закрыть позицию
+      description: Закрывает позицию по текущей рыночной цене
+      tags: [Positions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Позиция закрыта
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: closed
+                  realized_pnl:
+                    type: string
+                    example: "125.50"
+        '400':
+          description: Позиция уже закрыта
+        '404':
+          description: Позиция не найдена
+        '503':
+          description: Цена недоступна
+
+  /trades:
+    get:
+      summary: Получить историю сделок
+      tags: [Trades]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Список сделок
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Trade'
+        '401':
+          description: Требуется аутентификация
+
+  /ws:
+    get:
+      summary: WebSocket соединение
+      description: |
+        Подключение для получения real-time обновлений.
+
+        **Параметры запроса:**
+        - `token` - JWT токен для аутентификации (опционально)
+
+        **Типы сообщений:**
+        - `prices` - обновления цен (для всех)
+        - `position` - обновления PnL позиции (только для владельца)
+        - `position_close` - закрытие позиции (только для владельца)
+
+        **Пример сообщения цен:**
+        ```json
+        {
+          "type": "prices",
+          "data": [
+            {"symbol": "BTCUSDT", "bid": 50000, "ask": 50010, "mid": 50005}
+          ],
+          "timestamp": "2024-01-15T12:00:00Z"
+        }
+        ```
+
+        **Пример обновления позиции:**
+        ```json
+        {
+          "type": "position",
+          "data": {
+            "id": 123,
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "quantity": "0.1",
+            "entry_price": "50000",
+            "mark_price": "50100",
+            "unrealized_pnl": "10",
+            "leverage": 10
+          },
+          "timestamp": "2024-01-15T12:00:00Z"
+        }
+        ```
+      tags: [WebSocket]
+      parameters:
+        - name: token
+          in: query
+          description: JWT токен для аутентификации
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket upgrade
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 6
+          maxLength: 128
+          example: password123
+      required:
+        - email
+        - password
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+      required:
+        - user_id
+        - token
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Account:
+      type: object
+      properties:
+        balance:
+          type: string
+          description: Свободный баланс
+          example: "9500.00"
+        margin:
+          type: string
+          description: Заблокированная маржа
+          example: "500.00"
+        equity:
+          type: string
+          description: Общий капитал (balance + margin + unrealized PnL)
+          example: "10050.00"
+        unrealized_pnl:
+          type: string
+          description: Нереализованный PnL
+          example: "50.00"
+
+    Price:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        bid:
+          type: number
+          format: double
+          example: 50000.00
+        ask:
+          type: number
+          format: double
+          example: 50010.00
+        mid:
+          type: number
+          format: double
+          example: 50005.00
+        spread:
+          type: number
+          format: double
+          example: 10.00
+        timestamp:
+          type: string
+          format: date-time
+
+    Symbol:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        base_currency:
+          type: string
+          example: BTC
+        quote_currency:
+          type: string
+          example: USDT
+        min_quantity:
+          type: string
+          example: "0.001"
+        max_quantity:
+          type: string
+          example: "1000"
+        quantity_step:
+          type: string
+          example: "0.001"
+        min_leverage:
+          type: integer
+          example: 1
+        max_leverage:
+          type: integer
+          example: 100
+        maintenance_rate:
+          type: string
+          example: "0.005"
+
+    PlaceOrderRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+          example: BTCUSDT
+        side:
+          type: string
+          enum: [BUY, SELL]
+        type:
+          type: string
+          enum: [MARKET, LIMIT]
+        quantity:
+          type: string
+          description: Количество (decimal string)
+          example: "0.1"
+        price:
+          type: string
+          description: Цена для limit ордера
+          example: "50000"
+        leverage:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 10
+        stop_loss:
+          type: string
+          description: Уровень Stop Loss (опционально)
+          example: "49000"
+        take_profit:
+          type: string
+          description: Уровень Take Profit (опционально)
+          example: "52000"
+      required:
+        - symbol
+        - side
+        - type
+        - quantity
+        - leverage
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [BUY, SELL]
+        type:
+          type: string
+          enum: [MARKET, LIMIT]
+        status:
+          type: string
+          enum: [PENDING, FILLED, CANCELLED]
+        quantity:
+          type: string
+        price:
+          type: string
+        leverage:
+          type: integer
+        stop_loss:
+          type: string
+          nullable: true
+        take_profit:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateTPSLRequest:
+      type: object
+      properties:
+        stop_loss:
+          type: string
+          nullable: true
+          description: |
+            Для LONG: должен быть ниже entry price, выше liquidation price.
+            Для SHORT: должен быть выше entry price.
+          example: "49000"
+        take_profit:
+          type: string
+          nullable: true
+          description: |
+            Для LONG: должен быть выше entry price.
+            Для SHORT: должен быть ниже entry price.
+          example: "52000"
+
+    Position:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [LONG, SHORT]
+        status:
+          type: string
+          enum: [OPEN, CLOSED, LIQUIDATED]
+        quantity:
+          type: string
+        entry_price:
+          type: string
+        mark_price:
+          type: string
+          description: Текущая mark price
+        leverage:
+          type: integer
+        initial_margin:
+          type: string
+        unrealized_pnl:
+          type: string
+        realized_pnl:
+          type: string
+        liquidation_price:
+          type: string
+        stop_loss:
+          type: string
+          nullable: true
+        take_profit:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        position_id:
+          type: integer
+          format: int64
+        order_id:
+          type: integer
+          format: int64
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [LONG, SHORT]
+        type:
+          type: string
+          enum: [OPEN, CLOSE, LIQUIDATE]
+        quantity:
+          type: string
+        price:
+          type: string
+        pnl:
+          type: string
+        fee:
+          type: string
+        created_at:
+          type: string
+          format: date-time

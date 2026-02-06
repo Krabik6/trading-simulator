@@ -129,6 +129,25 @@ func (uc *UseCase) Login(ctx context.Context, input LoginInput) (*AuthOutput, er
 	}, nil
 }
 
+func (uc *UseCase) RefreshToken(ctx context.Context, userID domain.UserID) (*AuthOutput, error) {
+	// Verify user exists
+	_, err := uc.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate new token
+	token, err := uc.jwtService.GenerateToken(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthOutput{
+		UserID: int64(userID),
+		Token:  token,
+	}, nil
+}
+
 func validateEmail(email string) error {
 	if len(email) < 3 || len(email) > 255 {
 		return errors.New("email must be between 3 and 255 characters")
