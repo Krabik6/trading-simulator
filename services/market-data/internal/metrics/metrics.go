@@ -6,6 +6,25 @@ import (
 )
 
 var (
+	HTTPRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "market_data",
+			Name:      "http_requests_total",
+			Help:      "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+
+	HTTPRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "market_data",
+			Name:      "http_request_duration_seconds",
+			Help:      "HTTP request duration",
+			Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1},
+		},
+		[]string{"method", "path", "status"},
+	)
+
 	PricesProcessed = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "market_data",
@@ -59,7 +78,20 @@ var (
 		},
 		[]string{"symbol", "type"},
 	)
+
+	KafkaProducerInFlight = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "market_data",
+			Name:      "kafka_producer_in_flight",
+			Help:      "Number of in-flight Kafka send operations",
+		},
+	)
 )
+
+func ObserveHTTPRequest(method, path, status string, durationSeconds float64) {
+	HTTPRequestsTotal.WithLabelValues(method, path, status).Inc()
+	HTTPRequestDuration.WithLabelValues(method, path, status).Observe(durationSeconds)
+}
 
 func RecordPrice(symbol, source string) {
 	PricesProcessed.WithLabelValues(symbol, source).Inc()
@@ -88,4 +120,8 @@ func SetClientConnected(connected bool) {
 func SetCurrentPrice(symbol string, bid, ask float64) {
 	CurrentPrice.WithLabelValues(symbol, "bid").Set(bid)
 	CurrentPrice.WithLabelValues(symbol, "ask").Set(ask)
+}
+
+func SetKafkaProducerInFlight(inFlight int64) {
+	KafkaProducerInFlight.Set(float64(inFlight))
 }

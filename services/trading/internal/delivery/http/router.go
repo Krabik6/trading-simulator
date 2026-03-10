@@ -41,6 +41,7 @@ func NewRouter(deps RouterDeps) *Router {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.RequestMetrics())
 
 	// Health endpoints (no auth)
 	r.Get("/health", healthHandler)

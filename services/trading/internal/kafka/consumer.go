@@ -14,6 +14,7 @@ import (
 
 type PriceConsumer struct {
 	reader    *kafka.Reader
+	topic     string
 	pricesCh  chan *domain.Price
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -33,6 +34,7 @@ func NewPriceConsumer(brokers []string, topic, groupID string) *PriceConsumer {
 
 	return &PriceConsumer{
 		reader:   reader,
+		topic:    topic,
 		pricesCh: make(chan *domain.Price, 1000),
 		closed:   make(chan struct{}),
 	}
@@ -108,4 +110,20 @@ func (c *PriceConsumer) Health() error {
 		return fmt.Errorf("reader not initialized")
 	}
 	return nil
+}
+
+func (c *PriceConsumer) Stats() kafka.ReaderStats {
+	if c.reader == nil {
+		return kafka.ReaderStats{
+			Topic:     c.topic,
+			Partition: "all",
+		}
+	}
+
+	stats := c.reader.Stats()
+	if stats.Topic == "" {
+		stats.Topic = c.topic
+	}
+
+	return stats
 }

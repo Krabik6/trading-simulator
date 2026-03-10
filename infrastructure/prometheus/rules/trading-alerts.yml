@@ -1,0 +1,107 @@
+groups:
+  - name: trading-api-sli
+    interval: 30s
+    rules:
+      - alert: TradingAPIHigh5xxRate
+        expr: |
+          (
+            sum(rate(trading_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(trading_http_requests_total[5m])), 1)
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Trading API 5xx rate above 1%"
+          description: "The trading API error ratio has been above 1% for 10 minutes."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"
+
+      - alert: TradingCommandLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(trading_http_request_duration_seconds_bucket{path=~"/orders.*|/positions.*",method=~"POST|PATCH|DELETE"}[5m])) by (le)
+          ) > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Trading command latency p95 above 150ms"
+          description: "Command routes in trading API exceed p95 latency SLO for 10 minutes."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"
+
+      - alert: TradingCommandLatencyP99Critical
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(trading_http_request_duration_seconds_bucket{path=~"/orders.*|/positions.*",method=~"POST|PATCH|DELETE"}[5m])) by (le)
+          ) > 0.4
+        for: 5m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Trading command latency p99 above 400ms"
+          description: "Command routes in trading API exceed p99 latency objective for 5 minutes."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"
+
+  - name: trading-data-path
+    interval: 30s
+    rules:
+      - alert: TradingKafkaConsumerLagHigh
+        expr: max(trading_kafka_consumer_lag{topic="crypto-prices"}) > 5000
+        for: 10m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Trading consumer lag above 5k messages"
+          description: "Price consumer lag for trading service stayed above 5k messages for 10 minutes."
+          runbook_url: "docs/operations/runbooks/kafka-consumer-lag.md"
+
+      - alert: TradingKafkaConsumerLagCritical
+        expr: max(trading_kafka_consumer_lag{topic="crypto-prices"}) > 20000
+        for: 5m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Trading consumer lag above 20k messages"
+          description: "Price consumer lag for trading service is critically high."
+          runbook_url: "docs/operations/runbooks/kafka-consumer-lag.md"
+
+      - alert: TradingDBPoolSaturationHigh
+        expr: trading_db_pool_in_use / clamp_min(trading_db_pool_open, 1) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Trading DB pool saturation above 90%"
+          description: "Database connection pool is close to exhaustion in trading service."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"
+
+      - alert: TradingDBConnectionWaitSpike
+        expr: increase(trading_db_pool_wait_count[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Trading DB wait count spike"
+          description: "More than 100 DB connection waits observed over 5 minutes."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"
+
+      - alert: TradingWSMessagesDropped
+        expr: increase(trading_ws_messages_dropped_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Dropped WebSocket messages detected"
+          description: "Trading WebSocket hub dropped messages over the last 5 minutes."
+          runbook_url: "docs/operations/runbooks/trading-api-slo-breach.md"

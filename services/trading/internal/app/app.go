@@ -15,6 +15,7 @@ import (
 	"trading/internal/engine"
 	"trading/internal/kafka"
 	"trading/internal/logger"
+	"trading/internal/metrics"
 	"trading/internal/repository/postgres"
 	accountuc "trading/internal/usecase/account"
 	authuc "trading/internal/usecase/auth"
@@ -196,6 +197,9 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("start price consumer: %w", err)
 	}
 
+	// Start runtime metric collectors
+	a.startRuntimeMetrics(ctx)
+
 	// Start price processor
 	go a.priceProcessor.Start(ctx, a.priceConsumer.Prices())
 
@@ -206,6 +210,73 @@ func (a *App) Run(ctx context.Context) error {
 
 	logger.Info("shutting down trading service")
 	return nil
+}
+
+func (a *App) startRuntimeMetrics(ctx context.Context) {
+	go a.collectDBPoolMetrics(ctx, 5*time.Second)
+	go a.collectKafkaConsumerMetrics(ctx, 5*time.Second)
+}
+
+func (a *App) collectDBPoolMetrics(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	collect := func() {
+		if a.db == nil || a.db.DB == nil {
+			return
+		}
+		stats := a.db.Stats()
+		metrics.SetDBConnectionStats(
+			stats.OpenConnections,
+			stats.InUse,
+			stats.Idle,
+			stats.WaitCount,
+			stats.WaitDuration.Seconds(),
+		)
+	}
+
+	collect()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			collect()
+		}
+	}
+}
+
+func (a *App) collectKafkaConsumerMetrics(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	collect := func() {
+		if a.priceConsumer == nil {
+			return
+		}
+		stats := a.priceConsumer.Stats()
+		partition := stats.Partition
+		if partition == "" {
+			partition = "all"
+		}
+		metrics.SetKafkaConsumerLag(stats.Topic, partition, float64(stats.Lag))
+		metrics.SetKafkaConsumerQueue(
+			stats.Topic,
+			partition,
+			float64(stats.QueueLength),
+			float64(stats.QueueCapacity),
+		)
+	}
+
+	collect()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			collect()
+		}
+	}
 }
 
 func (a *App) healthCheck() error {

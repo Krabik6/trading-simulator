@@ -202,6 +202,7 @@ services:
     image: prom/prometheus:v2.50.0
     volumes:
       - ../../infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../infrastructure/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-prod-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

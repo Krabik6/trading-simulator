@@ -1,0 +1,52 @@
+groups:
+  - name: platform-health
+    interval: 30s
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up{job=~"market-data|trading"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: platform
+        annotations:
+          summary: "Prometheus target down"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }} for more than 2 minutes."
+          runbook_url: "docs/operations/runbooks/platform-target-down.md"
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: platform
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus failed to reload its configuration."
+          runbook_url: "docs/operations/runbooks/platform-target-down.md"
+
+      - alert: PrometheusRuleEvaluationSlow
+        expr: |
+          max by (rule_group) (
+            prometheus_rule_group_last_duration_seconds
+            /
+            clamp_min(prometheus_rule_group_interval_seconds, 1)
+          ) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: platform
+        annotations:
+          summary: "Prometheus rule evaluation is close to interval limit"
+          description: "Rule group {{ $labels.rule_group }} spends over 80% of its evaluation interval in execution."
+          runbook_url: "docs/operations/runbooks/platform-target-down.md"
+
+      - alert: PrometheusScrapePoolFailures
+        expr: increase(prometheus_target_sync_failed_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: platform
+        annotations:
+          summary: "Prometheus scrape pool synchronization failures"
+          description: "Prometheus reported scrape pool sync failures over the last 10 minutes."
+          runbook_url: "docs/operations/runbooks/platform-target-down.md"

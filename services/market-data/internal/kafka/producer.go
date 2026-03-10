@@ -48,6 +48,7 @@ func NewKafkaProducer(brokers []string, topic string, batchSize int, batchTimeou
 		"topic", topic,
 		"batch_size", batchSize,
 	)
+	metrics.SetKafkaProducerInFlight(0)
 
 	return &KafkaProducer{
 		writer:  writer,
@@ -93,7 +94,11 @@ func (p *KafkaProducer) Send(ctx context.Context, price domain.Price) error {
 	}
 
 	p.inFlight.Add(1)
-	defer p.inFlight.Add(-1)
+	metrics.SetKafkaProducerInFlight(p.inFlight.Load())
+	defer func() {
+		p.inFlight.Add(-1)
+		metrics.SetKafkaProducerInFlight(p.inFlight.Load())
+	}()
 
 	start := time.Now()
 
@@ -142,7 +147,11 @@ func (p *KafkaProducer) SendBatch(ctx context.Context, prices []domain.Price) er
 	}
 
 	p.inFlight.Add(1)
-	defer p.inFlight.Add(-1)
+	metrics.SetKafkaProducerInFlight(p.inFlight.Load())
+	defer func() {
+		p.inFlight.Add(-1)
+		metrics.SetKafkaProducerInFlight(p.inFlight.Load())
+	}()
 
 	messages := make([]kafka.Message, len(prices))
 

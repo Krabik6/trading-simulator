@@ -7,6 +7,7 @@ import (
 
 	"trading/internal/domain"
 	"trading/internal/logger"
+	"trading/internal/metrics"
 )
 
 // MessageType represents the type of WebSocket message
@@ -79,7 +80,7 @@ type userMessage struct {
 
 // NewHub creates a new Hub
 func NewHub() *Hub {
-	return &Hub{
+	hub := &Hub{
 		clients:       make(map[domain.UserID]map[*Client]bool),
 		allClients:    make(map[*Client]bool),
 		register:      make(chan *Client),
@@ -87,6 +88,32 @@ func NewHub() *Hub {
 		broadcast:     make(chan []byte, 256),
 		userBroadcast: make(chan userMessage, 256),
 	}
+
+	metrics.SetWSConnectionsActive(0)
+	return hub
+}
+
+// removeClientLocked removes a client from all tracking maps.
+// Caller must hold h.mu.
+func (h *Hub) removeClientLocked(client *Client) bool {
+	if _, ok := h.allClients[client]; !ok {
+		return false
+	}
+
+	delete(h.allClients, client)
+
+	if client.userID != 0 {
+		if userClients, ok := h.clients[client.userID]; ok {
+			delete(userClients, client)
+			if len(userClients) == 0 {
+				delete(h.clients, client.userID)
+			}
+		}
+	}
+
+	close(client.send)
+	metrics.SetWSConnectionsActive(len(h.allClients))
+	return true
 }
 
 // Run starts the hub
@@ -102,49 +129,41 @@ func (h *Hub) Run() {
 				}
 				h.clients[client.userID][client] = true
 			}
+			metrics.SetWSConnectionsActive(len(h.allClients))
 			h.mu.Unlock()
 			logger.Info("websocket client connected", "user_id", client.userID)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.allClients[client]; ok {
-				delete(h.allClients, client)
-				if client.userID != 0 {
-					delete(h.clients[client.userID], client)
-					if len(h.clients[client.userID]) == 0 {
-						delete(h.clients, client.userID)
-					}
-				}
-				close(client.send)
-			}
+			h.removeClientLocked(client)
 			h.mu.Unlock()
 			logger.Info("websocket client disconnected", "user_id", client.userID)
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock()
 			for client := range h.allClients {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.allClients, client)
+					metrics.RecordWSMessageDrop("client_send_buffer_full")
+					h.removeClientLocked(client)
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 
 		case msg := <-h.userBroadcast:
-			h.mu.RLock()
+			h.mu.Lock()
 			if clients, ok := h.clients[msg.userID]; ok {
 				for client := range clients {
 					select {
 					case client.send <- msg.message:
 					default:
-						close(client.send)
-						delete(clients, client)
+						metrics.RecordWSMessageDrop("user_client_send_buffer_full")
+						h.removeClientLocked(client)
 					}
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
@@ -176,6 +195,7 @@ func (h *Hub) BroadcastPrices(prices map[string]*domain.Price) {
 	select {
 	case h.broadcast <- data:
 	default:
+		metrics.RecordWSMessageDrop("broadcast_queue_full")
 		logger.Warn("broadcast channel full, dropping price update")
 	}
 }
@@ -208,6 +228,7 @@ func (h *Hub) BroadcastPositionUpdate(userID domain.UserID, position *domain.Pos
 	select {
 	case h.userBroadcast <- userMessage{userID: userID, message: data}:
 	default:
+		metrics.RecordWSMessageDrop("user_broadcast_queue_full")
 		logger.Warn("user broadcast channel full", "user_id", userID)
 	}
 }
@@ -232,6 +253,7 @@ func (h *Hub) BroadcastPositionClose(userID domain.UserID, positionID domain.Pos
 	select {
 	case h.userBroadcast <- userMessage{userID: userID, message: data}:
 	default:
+		metrics.RecordWSMessageDrop("user_broadcast_queue_full")
 		logger.Warn("user broadcast channel full", "user_id", userID)
 	}
 }

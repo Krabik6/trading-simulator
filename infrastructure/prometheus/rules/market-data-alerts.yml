@@ -1,0 +1,63 @@
+groups:
+  - name: market-data-sli
+    interval: 30s
+    rules:
+      - alert: MarketDataIngestStalled
+        expr: sum(rate(market_data_prices_processed_total[2m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: market-data
+        annotations:
+          summary: "Market-data ingest stalled"
+          description: "No prices have been processed for 5 minutes."
+          runbook_url: "docs/operations/runbooks/market-data-ingest-stall.md"
+
+      - alert: MarketDataKafkaSendErrors
+        expr: sum(increase(market_data_kafka_send_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: market-data
+        annotations:
+          summary: "Market-data Kafka send errors"
+          description: "Kafka publish errors were observed in market-data service for 5 minutes."
+          runbook_url: "docs/operations/runbooks/market-data-ingest-stall.md"
+
+      - alert: MarketDataProducerBacklogHigh
+        expr: max_over_time(market_data_kafka_producer_in_flight[5m]) > 500
+        for: 10m
+        labels:
+          severity: warning
+          service: market-data
+        annotations:
+          summary: "Market-data producer backlog high"
+          description: "In-flight Kafka producer operations exceeded 500 for 10 minutes."
+          runbook_url: "docs/operations/runbooks/market-data-ingest-stall.md"
+
+      - alert: MarketDataSourceDisconnected
+        expr: market_data_client_connected == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: market-data
+        annotations:
+          summary: "Market-data source disconnected"
+          description: "Market-data client is disconnected from upstream source for over 3 minutes."
+          runbook_url: "docs/operations/runbooks/market-data-ingest-stall.md"
+
+      - alert: MarketDataHTTP5xxRateHigh
+        expr: |
+          (
+            sum(rate(market_data_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(market_data_http_requests_total[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: market-data
+        annotations:
+          summary: "Market-data HTTP 5xx rate above 5%"
+          description: "Readiness/health endpoints in market-data are returning elevated 5xx responses."
+          runbook_url: "docs/operations/runbooks/market-data-ingest-stall.md"

@@ -173,7 +173,7 @@ func (a *App) startHTTPServer() {
 
 	a.server = &http.Server{
 		Addr:              fmt.Sprintf(":%d", a.config.Service.HTTPPort),
-		Handler:           mux,
+		Handler:           httpMetricsMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
