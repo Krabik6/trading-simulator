@@ -127,6 +127,10 @@ func (h *PositionHandler) ClosePosition(w http.ResponseWriter, r *http.Request) 
 			writeError(w, "price not available", http.StatusServiceUnavailable)
 			return
 		}
+		if errors.Is(err, domain.ErrInvalidQuantity) {
+			writeError(w, "invalid quantity", http.StatusBadRequest)
+			return
+		}
 		writeError(w, "failed to close position", http.StatusInternalServerError)
 		return
 	}

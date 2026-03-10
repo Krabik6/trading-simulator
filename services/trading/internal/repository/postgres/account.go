@@ -49,10 +49,21 @@ func (r *AccountRepository) GetByID(ctx context.Context, id domain.AccountID) (*
 }
 
 func (r *AccountRepository) GetByUserID(ctx context.Context, userID domain.UserID) (*domain.Account, error) {
+	return r.getByUserID(ctx, userID, false)
+}
+
+func (r *AccountRepository) GetByUserIDForUpdate(ctx context.Context, userID domain.UserID) (*domain.Account, error) {
+	return r.getByUserID(ctx, userID, true)
+}
+
+func (r *AccountRepository) getByUserID(ctx context.Context, userID domain.UserID, forUpdate bool) (*domain.Account, error) {
 	query := `
-		SELECT id, user_id, balance, created_at, updated_at
-		FROM accounts
-		WHERE user_id = $1`
+			SELECT id, user_id, balance, created_at, updated_at
+			FROM accounts
+			WHERE user_id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 
 	account := &domain.Account{}
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(
@@ -91,24 +102,26 @@ func (r *AccountRepository) Update(ctx context.Context, account *domain.Account)
 
 func (r *AccountRepository) UpdateBalance(ctx context.Context, id domain.AccountID, delta decimal.Decimal) error {
 	query := `
-		UPDATE accounts
-		SET balance = balance + $1
-		WHERE id = $2
-		RETURNING balance`
+			UPDATE accounts
+			SET balance = balance + $1
+			WHERE id = $2 AND balance + $1 >= 0
+			RETURNING balance`
 
 	var newBalance decimal.Decimal
 	err := r.db.QueryRowContext(ctx, query, delta, id).Scan(&newBalance)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.ErrAccountNotFound
+			var exists bool
+			existsErr := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1)`, id).Scan(&exists)
+			if existsErr != nil {
+				return existsErr
+			}
+			if !exists {
+				return domain.ErrAccountNotFound
+			}
+			return domain.ErrInsufficientBalance
 		}
 		return err
-	}
-
-	if newBalance.IsNegative() {
-		// Rollback the change
-		_, _ = r.db.ExecContext(ctx, `UPDATE accounts SET balance = balance - $1 WHERE id = $2`, delta, id)
-		return domain.ErrInsufficientBalance
 	}
 
 	return nil

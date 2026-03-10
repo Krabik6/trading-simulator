@@ -17,19 +17,20 @@ type Router struct {
 }
 
 type RouterDeps struct {
-	AuthMiddleware   *middleware.AuthMiddleware
-	AuthHandler      *handler.AuthHandler
-	AccountHandler   *handler.AccountHandler
-	OrderHandler     *handler.OrderHandler
-	PositionHandler  *handler.PositionHandler
-	TradeHandler     *handler.TradeHandler
-	UserHandler      *handler.UserHandler
-	PriceHandler     *handler.PriceHandler
-	CandleHandler    *handler.CandleHandler
-	TickerHandler    *handler.TickerHandler
-	WebSocketHandler *handler.WebSocketHandler
-	UserRepo         domain.UserRepository
-	HealthChecker    func() error
+	AuthMiddleware        *middleware.AuthMiddleware
+	IdempotencyMiddleware *middleware.IdempotencyMiddleware
+	AuthHandler           *handler.AuthHandler
+	AccountHandler        *handler.AccountHandler
+	OrderHandler          *handler.OrderHandler
+	PositionHandler       *handler.PositionHandler
+	TradeHandler          *handler.TradeHandler
+	UserHandler           *handler.UserHandler
+	PriceHandler          *handler.PriceHandler
+	CandleHandler         *handler.CandleHandler
+	TickerHandler         *handler.TickerHandler
+	WebSocketHandler      *handler.WebSocketHandler
+	UserRepo              domain.UserRepository
+	HealthChecker         func() error
 }
 
 func NewRouter(deps RouterDeps) *Router {
@@ -72,6 +73,9 @@ func NewRouter(deps RouterDeps) *Router {
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(deps.AuthMiddleware.Authenticate)
+		if deps.IdempotencyMiddleware != nil {
+			r.Use(deps.IdempotencyMiddleware.Handler)
+		}
 
 		// Auth
 		r.Post("/auth/refresh", deps.AuthHandler.Refresh)

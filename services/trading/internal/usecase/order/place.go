@@ -36,6 +36,7 @@ type UseCase struct {
 	positionRepo domain.PositionRepository
 	accountRepo  domain.AccountRepository
 	tradeRepo    domain.TradeRepository
+	txManager    domain.TxManager
 	priceCache   domain.PriceCache
 	engine       *engine.Engine
 	symbols      map[string]bool
@@ -46,6 +47,7 @@ func NewUseCase(
 	positionRepo domain.PositionRepository,
 	accountRepo domain.AccountRepository,
 	tradeRepo domain.TradeRepository,
+	txManager domain.TxManager,
 	priceCache domain.PriceCache,
 	eng *engine.Engine,
 	supportedSymbols []string,
@@ -59,6 +61,7 @@ func NewUseCase(
 		positionRepo: positionRepo,
 		accountRepo:  accountRepo,
 		tradeRepo:    tradeRepo,
+		txManager:    txManager,
 		priceCache:   priceCache,
 		engine:       eng,
 		symbols:      symbols,
@@ -77,18 +80,6 @@ func (uc *UseCase) PlaceOrder(ctx context.Context, input PlaceOrderInput) (*Plac
 		return nil, domain.ErrPriceNotAvailable
 	}
 
-	// Get account
-	account, err := uc.accountRepo.GetByUserID(ctx, input.UserID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get existing position for this symbol
-	existingPosition, err := uc.positionRepo.GetOpenByUserIDAndSymbol(ctx, input.UserID, input.Symbol)
-	if err != nil && !errors.Is(err, domain.ErrPositionNotFound) {
-		return nil, err
-	}
-
 	// Determine execution price
 	executionPrice := uc.engine.GetExecutionPrice(price, input.Side)
 
@@ -100,47 +91,73 @@ func (uc *UseCase) PlaceOrder(ctx context.Context, input PlaceOrderInput) (*Plac
 	// Calculate required margin
 	requiredMargin := uc.engine.MarginCalc.CalculateRequiredMargin(input.Quantity, executionPrice, input.Leverage)
 
-	// Get open positions for margin calculation
-	openPositions, err := uc.positionRepo.GetOpenByUserID(ctx, input.UserID)
+	var output *PlaceOrderOutput
+	err := uc.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		// Lock account row first to serialize all balance/margin-sensitive commands per user.
+		account, err := uc.accountRepo.GetByUserIDForUpdate(txCtx, input.UserID)
+		if err != nil {
+			return err
+		}
+
+		// Lock existing position for the same symbol (if any).
+		existingPosition, err := uc.positionRepo.GetOpenByUserIDAndSymbolForUpdate(txCtx, input.UserID, input.Symbol)
+		if err != nil && !errors.Is(err, domain.ErrPositionNotFound) {
+			return err
+		}
+
+		// Get open positions for margin calculation.
+		openPositions, err := uc.positionRepo.GetOpenByUserID(txCtx, input.UserID)
+		if err != nil {
+			return err
+		}
+
+		// Calculate available margin.
+		summary := account.CalculateSummary(openPositions)
+
+		// Check if we have enough margin.
+		if summary.AvailableMargin.LessThan(requiredMargin) {
+			return domain.ErrInsufficientMargin
+		}
+
+		// Create order.
+		order := &domain.Order{
+			UserID:     input.UserID,
+			Symbol:     input.Symbol,
+			Side:       input.Side,
+			Type:       input.Type,
+			Status:     domain.OrderStatusPending,
+			Quantity:   input.Quantity,
+			Price:      executionPrice,
+			Leverage:   input.Leverage,
+			StopLoss:   input.StopLoss,
+			TakeProfit: input.TakeProfit,
+		}
+
+		if err := uc.orderRepo.Create(txCtx, order); err != nil {
+			return err
+		}
+
+		metrics.RecordOrderPlaced(input.Symbol, string(input.Side), string(input.Type))
+
+		// For market orders, execute immediately.
+		if input.Type == domain.OrderTypeMarket {
+			res, err := uc.executeOrder(txCtx, order, existingPosition, executionPrice, account)
+			if err != nil {
+				return err
+			}
+			output = res
+			return nil
+		}
+
+		// Limit order stays pending.
+		output = &PlaceOrderOutput{Order: order}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate available margin
-	summary := account.CalculateSummary(openPositions)
-
-	// Check if we have enough margin
-	if summary.AvailableMargin.LessThan(requiredMargin) {
-		return nil, domain.ErrInsufficientMargin
-	}
-
-	// Create order
-	order := &domain.Order{
-		UserID:     input.UserID,
-		Symbol:     input.Symbol,
-		Side:       input.Side,
-		Type:       input.Type,
-		Status:     domain.OrderStatusPending,
-		Quantity:   input.Quantity,
-		Price:      executionPrice,
-		Leverage:   input.Leverage,
-		StopLoss:   input.StopLoss,
-		TakeProfit: input.TakeProfit,
-	}
-
-	if err := uc.orderRepo.Create(ctx, order); err != nil {
-		return nil, err
-	}
-
-	metrics.RecordOrderPlaced(input.Symbol, string(input.Side), string(input.Type))
-
-	// For market orders, execute immediately
-	if input.Type == domain.OrderTypeMarket {
-		return uc.executeOrder(ctx, order, existingPosition, executionPrice, account)
-	}
-
-	// Limit order stays pending
-	return &PlaceOrderOutput{Order: order}, nil
+	return output, nil
 }
 
 func (uc *UseCase) executeOrder(

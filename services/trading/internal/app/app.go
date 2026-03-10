@@ -107,6 +107,7 @@ func (a *App) Run(ctx context.Context) error {
 	authUC := authuc.NewUseCase(
 		userRepo,
 		accountRepo,
+		a.db,
 		jwtService,
 		a.config.Trading.InitialBalance,
 	)
@@ -116,6 +117,7 @@ func (a *App) Run(ctx context.Context) error {
 		accountRepo,
 		tradeRepo,
 		orderRepo,
+		a.db,
 		priceCache,
 		eng,
 	)
@@ -125,6 +127,7 @@ func (a *App) Run(ctx context.Context) error {
 		positionRepo,
 		accountRepo,
 		tradeRepo,
+		a.db,
 		priceCache,
 		eng,
 		a.config.Trading.SupportedSymbols,
@@ -160,22 +163,25 @@ func (a *App) Run(ctx context.Context) error {
 
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
+	idempotencyStore := postgres.NewIdempotencyStore(a.db)
+	idempotencyMiddleware := middleware.NewIdempotencyMiddleware(idempotencyStore)
 
 	// Create router
 	router := httpdelivery.NewRouter(httpdelivery.RouterDeps{
-		AuthMiddleware:   authMiddleware,
-		AuthHandler:      authHandler,
-		AccountHandler:   accountHandler,
-		OrderHandler:     orderHandler,
-		PositionHandler:  positionHandler,
-		TradeHandler:     tradeHandler,
-		UserHandler:      userHandler,
-		PriceHandler:     priceHandler,
-		CandleHandler:    candleHandler,
-		TickerHandler:    tickerHandler,
-		WebSocketHandler: wsHandler,
-		UserRepo:         userRepo,
-		HealthChecker:    a.healthCheck,
+		AuthMiddleware:        authMiddleware,
+		IdempotencyMiddleware: idempotencyMiddleware,
+		AuthHandler:           authHandler,
+		AccountHandler:        accountHandler,
+		OrderHandler:          orderHandler,
+		PositionHandler:       positionHandler,
+		TradeHandler:          tradeHandler,
+		UserHandler:           userHandler,
+		PriceHandler:          priceHandler,
+		CandleHandler:         candleHandler,
+		TickerHandler:         tickerHandler,
+		WebSocketHandler:      wsHandler,
+		UserRepo:              userRepo,
+		HealthChecker:         a.healthCheck,
 	})
 
 	// Start HTTP server

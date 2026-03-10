@@ -19,6 +19,7 @@ type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error
 	GetByID(ctx context.Context, id AccountID) (*Account, error)
 	GetByUserID(ctx context.Context, userID UserID) (*Account, error)
+	GetByUserIDForUpdate(ctx context.Context, userID UserID) (*Account, error)
 	Update(ctx context.Context, account *Account) error
 	UpdateBalance(ctx context.Context, id AccountID, delta decimal.Decimal) error
 }
@@ -27,6 +28,7 @@ type AccountRepository interface {
 type OrderRepository interface {
 	Create(ctx context.Context, order *Order) error
 	GetByID(ctx context.Context, id OrderID) (*Order, error)
+	GetByIDForUpdate(ctx context.Context, id OrderID) (*Order, error)
 	GetByUserID(ctx context.Context, userID UserID, limit, offset int) ([]Order, error)
 	GetPendingByUserID(ctx context.Context, userID UserID) ([]Order, error)
 	GetPendingBySymbol(ctx context.Context, symbol string) ([]Order, error)
@@ -38,9 +40,11 @@ type OrderRepository interface {
 type PositionRepository interface {
 	Create(ctx context.Context, position *Position) error
 	GetByID(ctx context.Context, id PositionID) (*Position, error)
+	GetByIDForUpdate(ctx context.Context, id PositionID) (*Position, error)
 	GetByUserID(ctx context.Context, userID UserID) ([]Position, error)
 	GetOpenByUserID(ctx context.Context, userID UserID) ([]Position, error)
 	GetOpenByUserIDAndSymbol(ctx context.Context, userID UserID, symbol string) (*Position, error)
+	GetOpenByUserIDAndSymbolForUpdate(ctx context.Context, userID UserID, symbol string) (*Position, error)
 	GetAllOpen(ctx context.Context) ([]Position, error)
 	GetOpenBySymbol(ctx context.Context, symbol string) ([]Position, error)
 	Update(ctx context.Context, position *Position) error
@@ -53,6 +57,11 @@ type TradeRepository interface {
 	GetByID(ctx context.Context, id TradeID) (*Trade, error)
 	GetByUserID(ctx context.Context, userID UserID, limit, offset int) ([]Trade, error)
 	GetByPositionID(ctx context.Context, positionID PositionID) ([]Trade, error)
+}
+
+// TxManager defines transaction boundary orchestration.
+type TxManager interface {
+	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 // PriceCache provides in-memory price lookups

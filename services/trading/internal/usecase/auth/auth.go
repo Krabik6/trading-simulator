@@ -14,6 +14,7 @@ import (
 type UseCase struct {
 	userRepo       domain.UserRepository
 	accountRepo    domain.AccountRepository
+	txManager      domain.TxManager
 	jwtService     *auth.JWTService
 	initialBalance decimal.Decimal
 }
@@ -36,12 +37,14 @@ type AuthOutput struct {
 func NewUseCase(
 	userRepo domain.UserRepository,
 	accountRepo domain.AccountRepository,
+	txManager domain.TxManager,
 	jwtService *auth.JWTService,
 	initialBalance float64,
 ) *UseCase {
 	return &UseCase{
 		userRepo:       userRepo,
 		accountRepo:    accountRepo,
+		txManager:      txManager,
 		jwtService:     jwtService,
 		initialBalance: decimal.NewFromFloat(initialBalance),
 	}
@@ -73,34 +76,43 @@ func (uc *UseCase) Register(ctx context.Context, input RegisterInput) (*AuthOutp
 		return nil, err
 	}
 
-	// Create user
-	user := &domain.User{
-		Email:        email,
-		PasswordHash: passwordHash,
-	}
-	if err := uc.userRepo.Create(ctx, user); err != nil {
-		return nil, err
-	}
+	var output *AuthOutput
+	err = uc.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		// Create user
+		user := &domain.User{
+			Email:        email,
+			PasswordHash: passwordHash,
+		}
+		if err := uc.userRepo.Create(txCtx, user); err != nil {
+			return err
+		}
 
-	// Create account with initial balance
-	account := &domain.Account{
-		UserID:  user.ID,
-		Balance: uc.initialBalance,
-	}
-	if err := uc.accountRepo.Create(ctx, account); err != nil {
-		return nil, err
-	}
+		// Create account with initial balance
+		account := &domain.Account{
+			UserID:  user.ID,
+			Balance: uc.initialBalance,
+		}
+		if err := uc.accountRepo.Create(txCtx, account); err != nil {
+			return err
+		}
 
-	// Generate token
-	token, err := uc.jwtService.GenerateToken(user.ID)
+		// Generate token
+		token, err := uc.jwtService.GenerateToken(user.ID)
+		if err != nil {
+			return err
+		}
+
+		output = &AuthOutput{
+			UserID: int64(user.ID),
+			Token:  token,
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &AuthOutput{
-		UserID: int64(user.ID),
-		Token:  token,
-	}, nil
+	return output, nil
 }
 
 func (uc *UseCase) Login(ctx context.Context, input LoginInput) (*AuthOutput, error) {

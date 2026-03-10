@@ -198,6 +198,37 @@ func TestClosePosition_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
+func TestClosePosition_QuantityGreaterThanPosition(t *testing.T) {
+	cleanupDatabase(t)
+
+	user := registerUser(t, uniqueEmail("pos_qty_gt"), "password123")
+
+	orderBody := map[string]interface{}{
+		"symbol":   "BTCUSDT",
+		"side":     "BUY",
+		"type":     "MARKET",
+		"quantity": "0.1",
+		"leverage": 10,
+	}
+	orderResp := makeRequest(t, "POST", "/orders", orderBody, user.Token)
+	orderResp.Body.Close()
+
+	posResp := makeRequest(t, "GET", "/positions", nil, user.Token)
+	var positions []PositionResponse
+	json.NewDecoder(posResp.Body).Decode(&positions)
+	posResp.Body.Close()
+	require.Len(t, positions, 1)
+
+	closeResp := makeRequest(t, "POST", fmt.Sprintf("/positions/%d/close", positions[0].ID), map[string]string{
+		"quantity": "0.2",
+	}, user.Token)
+	defer closeResp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, closeResp.StatusCode)
+	errMsg := parseErrorResponse(t, closeResp)
+	assert.Contains(t, errMsg, "quantity")
+}
+
 func TestClosePosition_WrongUser(t *testing.T) {
 	cleanupDatabase(t)
 

@@ -39,13 +39,24 @@ func (r *PositionRepository) Create(ctx context.Context, position *domain.Positi
 }
 
 func (r *PositionRepository) GetByID(ctx context.Context, id domain.PositionID) (*domain.Position, error) {
+	return r.getByID(ctx, id, false)
+}
+
+func (r *PositionRepository) GetByIDForUpdate(ctx context.Context, id domain.PositionID) (*domain.Position, error) {
+	return r.getByID(ctx, id, true)
+}
+
+func (r *PositionRepository) getByID(ctx context.Context, id domain.PositionID, forUpdate bool) (*domain.Position, error) {
 	query := `
-		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
-			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
-			   created_at, updated_at, closed_at
-		FROM positions
-		WHERE id = $1`
+			SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
+				   initial_margin, mark_price, unrealized_pnl, realized_pnl,
+				   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+				   created_at, updated_at, closed_at
+			FROM positions
+			WHERE id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 
 	position := &domain.Position{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -105,13 +116,24 @@ func (r *PositionRepository) GetOpenByUserID(ctx context.Context, userID domain.
 }
 
 func (r *PositionRepository) GetOpenByUserIDAndSymbol(ctx context.Context, userID domain.UserID, symbol string) (*domain.Position, error) {
+	return r.getOpenByUserIDAndSymbol(ctx, userID, symbol, false)
+}
+
+func (r *PositionRepository) GetOpenByUserIDAndSymbolForUpdate(ctx context.Context, userID domain.UserID, symbol string) (*domain.Position, error) {
+	return r.getOpenByUserIDAndSymbol(ctx, userID, symbol, true)
+}
+
+func (r *PositionRepository) getOpenByUserIDAndSymbol(ctx context.Context, userID domain.UserID, symbol string, forUpdate bool) (*domain.Position, error) {
 	query := `
-		SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
-			   initial_margin, mark_price, unrealized_pnl, realized_pnl,
-			   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
-			   created_at, updated_at, closed_at
-		FROM positions
-		WHERE user_id = $1 AND symbol = $2 AND status = 'OPEN'`
+			SELECT id, user_id, symbol, side, status, quantity, entry_price, leverage,
+				   initial_margin, mark_price, unrealized_pnl, realized_pnl,
+				   liquidation_price, stop_loss, take_profit, sl_close_percent, tp_close_percent,
+				   created_at, updated_at, closed_at
+			FROM positions
+			WHERE user_id = $1 AND symbol = $2 AND status = 'OPEN'`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 
 	position := &domain.Position{}
 	err := r.db.QueryRowContext(ctx, query, userID, symbol).Scan(

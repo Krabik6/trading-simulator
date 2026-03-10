@@ -36,4 +36,10 @@ var (
 
 	// Price errors
 	ErrPriceNotAvailable = errors.New("price not available")
+
+	// Idempotency errors
+	ErrIdempotencyKeyRequired    = errors.New("idempotency key is required")
+	ErrIdempotencyKeyConflict    = errors.New("idempotency key already used with different request")
+	ErrIdempotencyInProgress     = errors.New("request with this idempotency key is already in progress")
+	ErrIdempotencyRecordNotFound = errors.New("idempotency record not found")
 )

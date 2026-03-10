@@ -29,11 +29,22 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 }
 
 func (r *OrderRepository) GetByID(ctx context.Context, id domain.OrderID) (*domain.Order, error) {
+	return r.getByID(ctx, id, false)
+}
+
+func (r *OrderRepository) GetByIDForUpdate(ctx context.Context, id domain.OrderID) (*domain.Order, error) {
+	return r.getByID(ctx, id, true)
+}
+
+func (r *OrderRepository) getByID(ctx context.Context, id domain.OrderID, forUpdate bool) (*domain.Order, error) {
 	query := `
-		SELECT id, user_id, symbol, side, type, status, quantity, price, leverage,
-			   stop_loss, take_profit, filled_at, created_at, updated_at
-		FROM orders
-		WHERE id = $1`
+			SELECT id, user_id, symbol, side, type, status, quantity, price, leverage,
+				   stop_loss, take_profit, filled_at, created_at, updated_at
+			FROM orders
+			WHERE id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 
 	order := &domain.Order{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(

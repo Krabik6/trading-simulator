@@ -32,31 +32,33 @@ func (uc *UseCase) GetOrder(ctx context.Context, userID domain.UserID, orderID d
 }
 
 func (uc *UseCase) CancelOrder(ctx context.Context, userID domain.UserID, orderID domain.OrderID) error {
-	order, err := uc.orderRepo.GetByID(ctx, orderID)
-	if err != nil {
-		return err
-	}
+	return uc.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		order, err := uc.orderRepo.GetByIDForUpdate(txCtx, orderID)
+		if err != nil {
+			return err
+		}
 
-	// Verify ownership
-	if order.UserID != userID {
-		return domain.ErrOrderNotFound
-	}
+		// Verify ownership
+		if order.UserID != userID {
+			return domain.ErrOrderNotFound
+		}
 
-	// Check if order can be cancelled
-	if !order.CanBeCancelled() {
-		return domain.ErrOrderNotPending
-	}
+		// Check if order can be cancelled
+		if !order.CanBeCancelled() {
+			return domain.ErrOrderNotPending
+		}
 
-	// Update order status
-	order.Status = domain.OrderStatusCancelled
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return err
-	}
+		// Update order status
+		order.Status = domain.OrderStatusCancelled
+		if err := uc.orderRepo.Update(txCtx, order); err != nil {
+			return err
+		}
 
-	metrics.RecordOrderCancelled(order.Symbol)
-	logger.Info("order cancelled", "order_id", orderID)
+		metrics.RecordOrderCancelled(order.Symbol)
+		logger.Info("order cancelled", "order_id", orderID)
 
-	return nil
+		return nil
+	})
 }
 
 func (uc *UseCase) GetOrders(ctx context.Context, userID domain.UserID, limit, offset int) ([]domain.Order, error) {
@@ -74,46 +76,54 @@ func (uc *UseCase) GetPendingOrders(ctx context.Context, userID domain.UserID) (
 }
 
 func (uc *UseCase) UpdateOrder(ctx context.Context, userID domain.UserID, orderID domain.OrderID, input UpdateOrderInput) (*domain.Order, error) {
-	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	var updatedOrder *domain.Order
+	err := uc.txManager.WithinTx(ctx, func(txCtx context.Context) error {
+		order, err := uc.orderRepo.GetByIDForUpdate(txCtx, orderID)
+		if err != nil {
+			return err
+		}
+
+		if order.UserID != userID {
+			return domain.ErrOrderNotFound
+		}
+
+		if !order.IsPending() {
+			return domain.ErrOrderNotPending
+		}
+
+		if input.Price != nil {
+			if !input.Price.IsPositive() {
+				return domain.ErrInvalidPrice
+			}
+			order.Price = *input.Price
+		}
+
+		if input.Quantity != nil {
+			if !input.Quantity.IsPositive() {
+				return domain.ErrInvalidQuantity
+			}
+			order.Quantity = *input.Quantity
+		}
+
+		if input.StopLoss != nil {
+			order.StopLoss = input.StopLoss
+		}
+
+		if input.TakeProfit != nil {
+			order.TakeProfit = input.TakeProfit
+		}
+
+		if err := uc.orderRepo.Update(txCtx, order); err != nil {
+			return err
+		}
+
+		updatedOrder = order
+		logger.Info("order updated", "order_id", orderID)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if order.UserID != userID {
-		return nil, domain.ErrOrderNotFound
-	}
-
-	if !order.IsPending() {
-		return nil, domain.ErrOrderNotPending
-	}
-
-	if input.Price != nil {
-		if !input.Price.IsPositive() {
-			return nil, domain.ErrInvalidPrice
-		}
-		order.Price = *input.Price
-	}
-
-	if input.Quantity != nil {
-		if !input.Quantity.IsPositive() {
-			return nil, domain.ErrInvalidQuantity
-		}
-		order.Quantity = *input.Quantity
-	}
-
-	if input.StopLoss != nil {
-		order.StopLoss = input.StopLoss
-	}
-
-	if input.TakeProfit != nil {
-		order.TakeProfit = input.TakeProfit
-	}
-
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return nil, err
-	}
-
-	logger.Info("order updated", "order_id", orderID)
-
-	return order, nil
+	return updatedOrder, nil
 }

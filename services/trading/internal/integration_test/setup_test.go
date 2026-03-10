@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -228,13 +229,14 @@ func setupTestInfrastructure() error {
 	priceCache = NewMockPriceCache()
 
 	// Create use cases
-	authUseCase = authuc.NewUseCase(userRepo, accountRepo, jwtService, testInitialBalance)
+	authUseCase = authuc.NewUseCase(userRepo, accountRepo, db, jwtService, testInitialBalance)
 	accountUseCase = accountuc.NewUseCase(accountRepo, positionRepo)
 	orderUseCase = orderuc.NewUseCase(
 		orderRepo,
 		positionRepo,
 		accountRepo,
 		tradeRepo,
+		db,
 		priceCache,
 		eng,
 		[]string{"BTCUSDT", "ETHUSDT", "SOLUSDT"},
@@ -244,6 +246,7 @@ func setupTestInfrastructure() error {
 		accountRepo,
 		tradeRepo,
 		orderRepo,
+		db,
 		priceCache,
 		eng,
 	)
@@ -257,16 +260,19 @@ func setupTestInfrastructure() error {
 
 	// Create middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
+	idempotencyStore := postgres.NewIdempotencyStore(db)
+	idempotencyMiddleware := middleware.NewIdempotencyMiddleware(idempotencyStore)
 
 	// Create router
 	testRouter = httpdelivery.NewRouter(httpdelivery.RouterDeps{
-		AuthMiddleware:  authMiddleware,
-		AuthHandler:     authHandler,
-		AccountHandler:  accountHandler,
-		OrderHandler:    orderHandler,
-		PositionHandler: positionHandler,
-		TradeHandler:    tradeHandler,
-		HealthChecker:   func() error { return testDB.Ping() },
+		AuthMiddleware:        authMiddleware,
+		IdempotencyMiddleware: idempotencyMiddleware,
+		AuthHandler:           authHandler,
+		AccountHandler:        accountHandler,
+		OrderHandler:          orderHandler,
+		PositionHandler:       positionHandler,
+		TradeHandler:          tradeHandler,
+		HealthChecker:         func() error { return testDB.Ping() },
 	})
 
 	// Create test server
@@ -345,6 +351,18 @@ func loginUser(t *testing.T, email, password string) string {
 func makeRequest(t *testing.T, method, path string, body interface{}, token string) *http.Response {
 	t.Helper()
 
+	return makeRequestWithHeaders(t, method, path, body, token, nil)
+}
+
+func makeRequestWithHeaders(
+	t *testing.T,
+	method, path string,
+	body interface{},
+	token string,
+	headers map[string]string,
+) *http.Response {
+	t.Helper()
+
 	var reqBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -363,6 +381,12 @@ func makeRequest(t *testing.T, method, path string, body interface{}, token stri
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	if requiresIdempotencyInTests(method, path) {
+		req.Header.Set("Idempotency-Key", fmt.Sprintf("%s:%s:%d", method, path, time.Now().UnixNano()))
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -371,6 +395,13 @@ func makeRequest(t *testing.T, method, path string, body interface{}, token stri
 	}
 
 	return resp
+}
+
+func requiresIdempotencyInTests(method, path string) bool {
+	if method != http.MethodPost && method != http.MethodPatch && method != http.MethodDelete {
+		return false
+	}
+	return strings.HasPrefix(path, "/orders") || strings.HasPrefix(path, "/positions")
 }
 
 func parseResponse(t *testing.T, resp *http.Response, v interface{}) {
