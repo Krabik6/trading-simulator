@@ -39,7 +39,7 @@ type Order struct {
 	Type       OrderType
 	Status     OrderStatus
 	Quantity   decimal.Decimal
-	Price      decimal.Decimal  // limit price (0 for market orders)
+	Price      decimal.Decimal // limit price (0 for market orders)
 	Leverage   int
 	StopLoss   *decimal.Decimal
 	TakeProfit *decimal.Decimal

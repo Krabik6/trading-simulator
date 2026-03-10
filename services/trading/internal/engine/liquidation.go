@@ -51,10 +51,10 @@ func (c *LiquidationChecker) ShouldTriggerTakeProfit(position *domain.Position, 
 
 // CheckPositionTriggers checks all triggers for a position
 type TriggerResult struct {
-	ShouldLiquidate   bool
-	ShouldStopLoss    bool
-	ShouldTakeProfit  bool
-	TriggerPrice      decimal.Decimal
+	ShouldLiquidate  bool
+	ShouldStopLoss   bool
+	ShouldTakeProfit bool
+	TriggerPrice     decimal.Decimal
 }
 
 func (c *LiquidationChecker) CheckTriggers(position *domain.Position, markPrice decimal.Decimal) TriggerResult {

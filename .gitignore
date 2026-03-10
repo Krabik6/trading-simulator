@@ -59,3 +59,7 @@ dist/
 credentials.json
 secrets.yaml
 secrets.yml
+
+# Deploy environment overrides
+deploy/env/prod.env
+deploy/env/*.local

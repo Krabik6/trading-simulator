@@ -18,12 +18,12 @@ type Account struct {
 
 // AccountSummary contains calculated account metrics
 type AccountSummary struct {
-	Balance       decimal.Decimal // available balance
-	Equity        decimal.Decimal // balance + unrealized PnL
-	UsedMargin    decimal.Decimal // total margin used by open positions
+	Balance         decimal.Decimal // available balance
+	Equity          decimal.Decimal // balance + unrealized PnL
+	UsedMargin      decimal.Decimal // total margin used by open positions
 	AvailableMargin decimal.Decimal // equity - used margin
-	UnrealizedPnL decimal.Decimal // sum of all positions' unrealized PnL
-	MarginRatio   decimal.Decimal // used margin / equity (for cross margin)
+	UnrealizedPnL   decimal.Decimal // sum of all positions' unrealized PnL
+	MarginRatio     decimal.Decimal // used margin / equity (for cross margin)
 }
 
 // CalculateSummary computes account summary with given positions

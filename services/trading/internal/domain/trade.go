@@ -13,7 +13,7 @@ type TradeType string
 const (
 	TradeTypeOpen      TradeType = "OPEN"
 	TradeTypeClose     TradeType = "CLOSE"
-	TradeTypeAdd       TradeType = "ADD"       // adding to existing position
+	TradeTypeAdd       TradeType = "ADD" // adding to existing position
 	TradeTypeLiquidate TradeType = "LIQUIDATE"
 )
 

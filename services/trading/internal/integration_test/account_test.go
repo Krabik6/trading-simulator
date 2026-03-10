@@ -175,4 +175,3 @@ func TestGetAccount_MultiplePositions(t *testing.T) {
 	// Total ~= 425.225
 	assert.NotEqual(t, "0.00", info.UsedMargin)
 }
-

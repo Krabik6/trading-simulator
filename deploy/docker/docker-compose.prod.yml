@@ -1,0 +1,239 @@
+services:
+  trading:
+    build:
+      context: ../../services/trading
+      dockerfile: Dockerfile
+    env_file:
+      - ../../services/trading/.env
+    environment:
+      - KAFKA_BROKERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - DB_HOST=pgbouncer
+      - DB_PORT=6432
+      - LOG_LEVEL=warn
+      - DB_MAX_OPEN_CONNS=100
+      - DB_MAX_IDLE_CONNS=30
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_started
+    restart: always
+    networks:
+      - trading-net
+
+  market-data:
+    build:
+      context: ../../services/market-data
+      dockerfile: Dockerfile
+    env_file:
+      - ../../services/market-data/.env
+    environment:
+      - KAFKA_BROKERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - LOG_LEVEL=warn
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: always
+    networks:
+      - trading-net
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_URL=http://trading:8081
+      - NEXT_PUBLIC_WS_URL=ws://trading:8081/ws
+    depends_on:
+      - trading
+    restart: always
+    networks:
+      - trading-net
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+      POSTGRES_DB: trading
+    command:
+      - postgres
+      - -c
+      - max_connections=500
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - synchronous_commit=on
+    volumes:
+      - postgres-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+    networks:
+      - trading-net
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.24.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    restart: always
+    networks:
+      - trading-net
+
+  kafka-1:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-prod-1-data:/var/lib/kafka/data
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: always
+    networks:
+      - trading-net
+
+  kafka-2:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-prod-2-data:/var/lib/kafka/data
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: always
+    networks:
+      - trading-net
+
+  kafka-3:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-prod-3-data:/var/lib/kafka/data
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: always
+    networks:
+      - trading-net
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP=kafka-1:9092
+      - TOPIC_FILE=/scripts/topic-specs.env
+      - TOPIC_SPECS=crypto-prices:12:3,trades:12:3,trading-events:12:3,order-commands:12:3,bot-events:12:3
+    command: ["/bin/sh", "/scripts/create-topics.sh"]
+    volumes:
+      - ./kafka/create-topics.sh:/scripts/create-topics.sh:ro
+      - ./kafka/topic-specs.env:/scripts/topic-specs.env:ro
+    restart: "no"
+    networks:
+      - trading-net
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    volumes:
+      - ../../infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-prod-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    restart: always
+    networks:
+      - trading-net
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../../infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-prod-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: always
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    driver: bridge
+
+volumes:
+  postgres-prod-data:
+  kafka-prod-1-data:
+  kafka-prod-2-data:
+  kafka-prod-3-data:
+  prometheus-prod-data:
+  grafana-prod-data:
